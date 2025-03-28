@@ -1,0 +1,17 @@
+aioredis
+alembic
+celery[redis]
+fastapi[all]
+flower
+httpx 
+jwt
+passlib[bcrypt]
+psycopg2-binary
+pytest 
+python-jose[cryptography]
+python-multipart
+redis
+sqlmodel
+sqlalchemy
+ultralytics
+uvicorn[standard]

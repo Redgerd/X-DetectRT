@@ -1,114 +1,99 @@
-# Smart-Campus
+# 🔍 Deepfake Detection Backend
 
-The **Smart-Campus** system is developed by **Lynx InfoSec**.
-
-<br>
-
-## Setup Instructions
-
-Before building or pulling the repository, ensure the following two commands are executed to ensure correct line endings:
-
-```bash
-git config --global core.autocrlf false
-git config --global core.eol lf
-```
-
-These configurations will ensure that line-endings match those used by Unix-based systems (for docker setup).
-
-<br>
-
-## Deployment
-
-### Frontend Setup
-
-1. Navigate to the `frontend` folder:
-
-   ```bash
-   cd frontend
-   ```
-
-2. Install the required dependencies:
-
-   ```bash
-   npm install
-   ```
-
-3. Run the development server:
-
-   ```bash
-   npm run dev
-   ```
-
-The frontend should now be accessible via `http://localhost:3000` (or a similar port based on your configuration).
-
-<br>
+A scalable, intelligent backend system for detecting deepfakes in video content. It combines modern technologies like **FastAPI**, **Celery**, and **Explainable AI (XAI)** to deliver accurate detection results with interpretability, efficiency, and automation.
 
 ---
 
-<br>
+## 🚀 Project Overview
 
-### Backend Setup
+This backend service allows users to upload videos, which are then analyzed to determine whether the content is authentic or has been manipulated using deepfake techniques. The system uses machine learning models to evaluate both **visual (frames)** and **audio** content, and provides **explainable results** through XAI techniques. It is optimized for performance and scalability using asynchronous processing and task queuing.
 
-The backend is designed to be highly scalable, using **Celery** for image processing tasks. Multiple workers running on different machines can collaborate as long as they can access the same **Redis** instance.
+---
 
-#### Prerequisites
+## ⚙️ Key Technologies Used
 
-- Install **Docker Desktop** to run the backend via Docker containers.
+* **FastAPI**: High-performance, asynchronous web framework for handling video uploads and serving results via RESTful APIs.
+* **Celery**: Distributed task queue used to manage intensive tasks like video processing, ML inference, and explainability in parallel.
+* **Redis**: In-memory data structure store used as a message broker for Celery.
+* **XAI (Explainable AI)**: Used to interpret model decisions and visualize suspicious segments or features in the video and audio.
+* **AI Agents**: Optional intelligent agents to automate decision-making, generate human-readable summaries, and manage the pipeline.
 
-#### Steps
+---
 
-1. **Prepare Environment Variables:**
+## 📌 Key Features
 
-   Copy the `.env.copy` file to `.env` and fill in the required information.
+### ✅ 1. Video Upload & Preprocessing
 
-   ```bash
-   cp .env.copy .env
-   ```
+* Accepts video files via an API.
+* Automatically splits videos into **frames** and **audio segments**.
+* Handles large files efficiently with asynchronous streaming and storage.
 
-2. **Build Docker Containers:**
+### ✅ 2. Deepfake Detection Pipeline
 
-   Build the Docker containers, which may take some time depending on your internet speed.
+* Visual frames are analyzed using a trained CNN-based model.
+* Audio is processed with an audio-based deepfake classifier.
+* Results are combined to produce a final **deepfake probability score**.
 
-   ```bash
-   docker-compose build
-   ```
+### ✅ 3. Background Processing with Celery
 
-3. **Start Docker Containers:**
+* Heavy tasks (frame analysis, audio analysis, model inference) are executed asynchronously.
+* Uses Redis to queue and monitor jobs efficiently.
 
-   Once the containers are built, start them to run all required services:
+### ✅ 4. Explainable AI (XAI)
 
-   ```bash
-   docker-compose up
-   ```
+* Generates clear visualizations like heatmaps over suspicious facial regions (e.g., with Grad-CAM).
+* Explains model predictions in human-readable summaries.
+* Useful for building trust and transparency in detection.
 
-   By default, the FastAPI backend will be accessible at `http://localhost:8000`.
-   **Flower** will be accessible at `http://localhost:5555` for monitoring Celery workers.
+### ✅ 5. AI Agents (Optional, Advanced)
 
+* Use intelligent agents to:
 
-#### NVIDIA GPU Setup (Optional for Production)
+  * Select the best detection path (e.g., skip audio if poor quality).
+  * Auto-summarize results.
+  * Manage multi-model inference and reporting.
+* Agents can use tools like `crewAI`, `langchain`, or LLMs to enhance automation and reasoning.
 
-If you want to leverage NVIDIA GPUs for production, ensure the following:
+### ✅ 6. Structured Result Management
 
-1. Install the appropriate NVIDIA drivers for your system.
-2. Install the **NVIDIA Container Toolkit**.
-3. Use the production Docker Compose file to start the containers with GPU access:
+* Detection results are stored in a structured database.
+* Each video is associated with metadata, detection scores, XAI outputs, and optional user info.
 
-   ```bash
-   sudo docker compose -f docker-compose.prod.yml up
-   ```
+---
 
-   This will enable GPU acceleration for tasks that support it.
+## 🧠 Database Entities (Simplified)
 
-<br>
+* **Users** (optional): Login, roles, history
+* **Videos**: Filename, upload time, status
+* **Detection Results**: Fake score, verdict, confidence
+* **Frames** (optional): Individual frame scores
+* **Audio Analysis** (optional): Voice-based fake probability
+* **Explainability Data**: XAI summaries, visual paths
 
-#### Celery Worker Configuration
+---
 
-Celery workers are an integral part of this system. For a basic demo setup, use 1 worker for each type of task. Ensure that the Celery workers and FastAPI can access the same Redis instance for operation.
+## 📊 Output Summary
 
-<br>
+After processing, users receive:
 
-## Notes
+* A verdict: **"Real"**, **"Fake"**, or **"Uncertain"**
+* A confidence score (e.g., 91.3% likely fake)
+* XAI-generated visual and textual explanation
+* Optional PDF report or downloadable summary
 
-- **Local Deployment:** The provided Docker setup is intended for local development. For a production or more scalable deployment, you will need to adjust the Docker configuration in `docker-compose.yml` for your specific environment needs.
+---
 
-- **Scaling:** For a scalable production environment, consider using multiple machines and scaling Celery workers. Ensure that all machines can access the same Redis instance for coordination and task routing.
+## 🔐 Security & Scaling
+
+* Can be integrated with authentication and rate limiting.
+* Supports deployment via Docker and orchestration with Kubernetes.
+* Designed for GPU-accelerated inference in production environments.
+
+---
+
+## 🌐 Use Cases
+
+* Content verification for media outlets
+* Trust tools for social media moderation
+* Academic research on deepfake detection
+* Legal evidence evaluation

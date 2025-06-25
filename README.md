@@ -1,99 +1,96 @@
-# 🔍 Deepfake Detection Backend
+## Problem Statement
+Deepfake content is a growing threat to the authenticity of digital media. This project aims to detect manipulated (deepfake) videos by analyzing both visual and audio components using machine learning models. The backend system is designed to provide accurate and explainable results to help verify media authenticity.
 
-A scalable, intelligent backend system for detecting deepfakes in video content. It combines modern technologies like **FastAPI**, **Celery**, and **Explainable AI (XAI)** to deliver accurate detection results with interpretability, efficiency, and automation.
+## Objectives
 
----
+- Build a backend system to detect deepfakes in uploaded videos.
+- Extract frames and audio from videos for individual analysis.
+- Apply trained ML models to assess the authenticity of content.
+- Use Explainable AI (XAI) to generate interpretable results.
+- Implement asynchronous and distributed processing using Celery.
+- Store and serve detection results through an API.
+- (Optional) Use AI agents to manage decision-making and result exp
 
-## 🚀 Project Overview
+## System Architecture
 
-This backend service allows users to upload videos, which are then analyzed to determine whether the content is authentic or has been manipulated using deepfake techniques. The system uses machine learning models to evaluate both **visual (frames)** and **audio** content, and provides **explainable results** through XAI techniques. It is optimized for performance and scalability using asynchronous processing and task queuing.
+**Components:**
 
----
+- FastAPI (API server)
+- Celery (task manager)
+- Redis (message broker)
+- Video/Audio processing module
+- ML models (for visual & audio deepfake detection)
+- XAI module (e.g., Grad-CAM, SHAP)
+- Database (PostgreSQL or MongoDB)
+- Optional AI Agent layer (e.g., crewAI)
 
-## ⚙️ Key Technologies Used
+## Tech Stack
 
-* **FastAPI**: High-performance, asynchronous web framework for handling video uploads and serving results via RESTful APIs.
-* **Celery**: Distributed task queue used to manage intensive tasks like video processing, ML inference, and explainability in parallel.
-* **Redis**: In-memory data structure store used as a message broker for Celery.
-* **XAI (Explainable AI)**: Used to interpret model decisions and visualize suspicious segments or features in the video and audio.
-* **AI Agents**: Optional intelligent agents to automate decision-making, generate human-readable summaries, and manage the pipeline.
+| Layer              | Technology           |
+|--------------------|----------------------|
+| API Backend        | FastAPI              |
+| Task Queue         | Celery + Redis       |
+| Video Processing   | OpenCV, ffmpeg       |
+| Audio Processing   | MoviePy, Pydub       |
+| ML Inference       | PyTorch / TensorFlow |
+| Explainability     | Grad-CAM, SHAP       |
+| AI Agents (opt.)   | crewAI, langchain    |
+| Data Storage       | PostgreSQL / MongoDB |
+| Deployment         | Docker               |
 
----
+## Deepfake Detection Pipeline
 
-## 📌 Key Features
+1. User uploads a video via FastAPI.
+2. Video is split into frames and audio segments.
+3. Celery sends frame/audio tasks to background workers.
+4. ML models evaluate both components for manipulation.
+5. Results are combined into a final decision.
+6. XAI module explains the predictions.
+7. API returns detection score, verdict, and explanation.
 
-### ✅ 1. Video Upload & Preprocessing
+## Explainable AI (XAI)
 
-* Accepts video files via an API.
-* Automatically splits videos into **frames** and **audio segments**.
-* Handles large files efficiently with asynchronous streaming and storage.
+- **Purpose**: Help users understand why a video is classified as fake or real.
+- **Techniques Used**:
+  - Grad-CAM: Heatmaps over suspicious facial regions
+  - SHAP/LIME: Feature importance for audio or tabular data
+- **Outputs**:
+  - Visual overlays on frames
+  - Text-based summaries
+  - Optional PDF reports
 
-### ✅ 2. Deepfake Detection Pipeline
+## AI Agents (Optional Module)
 
-* Visual frames are analyzed using a trained CNN-based model.
-* Audio is processed with an audio-based deepfake classifier.
-* Results are combined to produce a final **deepfake probability score**.
+- Automatically select which models to run (audio, video, or both)
+- Generate human-readable summaries of results
+- Manage multi-step inference workflows
+- Tools: `crewAI`, `langchain`, or custom logic + LLMs
 
-### ✅ 3. Background Processing with Celery
+## Machine Learning Overview
 
-* Heavy tasks (frame analysis, audio analysis, model inference) are executed asynchronously.
-* Uses Redis to queue and monitor jobs efficiently.
+- Visual model: CNN-based model trained on deepfake datasets (e.g., DFDC)
+- Audio model: Voice classification using spectrograms or MFCCs
+- Evaluation metrics: Accuracy, precision, recall, F1-score
+- Combined score: Weighted average of frame and audio scores
 
-### ✅ 4. Explainable AI (XAI)
+## Output Example
 
-* Generates clear visualizations like heatmaps over suspicious facial regions (e.g., with Grad-CAM).
-* Explains model predictions in human-readable summaries.
-* Useful for building trust and transparency in detection.
+- Verdict: **Fake**
+- Confidence: **91.3%**
+- Fake Frames: **72%**
+- Audio Score: **85% fake likelihood**
+- XAI Summary: "Fake regions detected in facial area between 00:10–00:25"
 
-### ✅ 5. AI Agents (Optional, Advanced)
+## Security & Scalability
 
-* Use intelligent agents to:
+- JWT-based authentication (optional)
+- Rate limiting to avoid abuse
+- Docker-based containerization
+- Ready for GPU inference and cloud deployment
 
-  * Select the best detection path (e.g., skip audio if poor quality).
-  * Auto-summarize results.
-  * Manage multi-model inference and reporting.
-* Agents can use tools like `crewAI`, `langchain`, or LLMs to enhance automation and reasoning.
+## Future Improvements
 
-### ✅ 6. Structured Result Management
-
-* Detection results are stored in a structured database.
-* Each video is associated with metadata, detection scores, XAI outputs, and optional user info.
-
----
-
-## 🧠 Database Entities (Simplified)
-
-* **Users** (optional): Login, roles, history
-* **Videos**: Filename, upload time, status
-* **Detection Results**: Fake score, verdict, confidence
-* **Frames** (optional): Individual frame scores
-* **Audio Analysis** (optional): Voice-based fake probability
-* **Explainability Data**: XAI summaries, visual paths
-
----
-
-## 📊 Output Summary
-
-After processing, users receive:
-
-* A verdict: **"Real"**, **"Fake"**, or **"Uncertain"**
-* A confidence score (e.g., 91.3% likely fake)
-* XAI-generated visual and textual explanation
-* Optional PDF report or downloadable summary
-
----
-
-## 🔐 Security & Scaling
-
-* Can be integrated with authentication and rate limiting.
-* Supports deployment via Docker and orchestration with Kubernetes.
-* Designed for GPU-accelerated inference in production environments.
-
----
-
-## 🌐 Use Cases
-
-* Content verification for media outlets
-* Trust tools for social media moderation
-* Academic research on deepfake detection
-* Legal evidence evaluation
+- Add real-time video streaming support
+- Use reinforcement learning agents for adaptive decisions
+- Extend to detect image and text-based manipulations
+- Deploy to cloud (AWS/GCP) with Kubernetes

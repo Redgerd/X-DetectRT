@@ -8,36 +8,37 @@
 [![Docker](https://img.shields.io/badge/Docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Langchain](https://img.shields.io/badge/Langchain-%231A202C.svg?style=for-the-badge&logo=langchain&logoColor=white)](https://www.langchain.com/)
 
-
 ## Problem Statement
 Deepfake content is a growing threat to the authenticity of digital media. This project aims to detect manipulated (deepfake) videos by analyzing both visual and audio components using machine learning models. The backend system is designed to provide accurate and explainable results to help verify media authenticity.
 
 ## Objectives
 
-
-- Build a backend system to detect deepfakes in uploaded videos.
-- Extract frames and audio from videos for individual analysis.
-- Apply trained ML models to assess the authenticity of content.
-- Use Explainable AI (XAI) to generate interpretable results.
-- Implement asynchronous and distributed processing using Celery.
-- Store and serve detection results through an API using object storage.
-- (Optional) Use AI agents to manage decision-making and generate summaries.
+- Build a backend pipeline for deepfake detection from user-uploaded videos.
+- Extract frames and audio segments for separate, optimized analysis.
+- Apply trained ML models to identify visual and audio inconsistencies.
+- Generate interpretable results using Explainable AI techniques.
+- Integrate LLMs to:
+  - Aid in interpreting detection metadata and frame outputs
+  - Produce user-friendly, natural language explanations
+- Ensure efficient, asynchronous processing with Celery workers.
+- Persist videos and detection results in MinIO and PostgreSQL.
+- Expose predictions and reports via a FastAPI-based REST API.
 
 ## System Architecture
 
 **Components:**
 
-- `FastAPI` – API server for upload and response
-- `Celery` – Distributed task queue manager
-- `Redis` – Message broker for Celery
-- `Object Storage` – MinIO for storing video, frames, audio, and outputs
-- `ML Models` – Trained visual and audio models for detection
-- `XAI Module` – Grad-CAM, SHAP for explainability
-- `Database` – PostgreSQL for metadata, scores, and user info
-- `AI Agents` *(Optional)* – Decision logic via crewAI or langchain
+- `FastAPI` – REST API for upload and results  
+- `Celery` – Distributed task manager for background tasks  
+- `Redis` – Message broker for task queue  
+- `MinIO` – S3-compatible storage for all media artifacts  
+- `PostgreSQL` – Metadata and result storage  
+- `TensorFlow` – Visual/audio deepfake classification  
+- `Grad-CAM & SHAP` – For visual and audio feature explanation  
+- `LLMs` – For natural language output  
+- `Docker` – For isolated development and deployment environments
 
 ![image](https://github.com/user-attachments/assets/afe712c2-918f-4a05-be05-60ff955e6430)
-
 
 ## Tech Stack
 
@@ -49,7 +50,7 @@ Deepfake content is a growing threat to the authenticity of digital media. This 
 | Audio Processing   | MoviePy, Pydub       |
 | ML Inference       | TensorFlow           |
 | Explainability     | Grad-CAM, SHAP       |
-| AI Agents (opt.)   | crewAI, langchain    |
+| LLM Explanation    | Langchain            |
 | Data Storage       | PostgreSQL           |
 | File Storage       | MinIO                |
 | Deployment         | Docker               |
@@ -57,56 +58,33 @@ Deepfake content is a growing threat to the authenticity of digital media. This 
 ## Deepfake Detection Pipeline
 
 1. User uploads a video via FastAPI.
-2. Video is stored in object storage (e.g., MinIO).
-3. Video is split into frames and audio.
-4. Celery workers process frames and audio asynchronously.
-5. ML models run inference to detect manipulation.
-6. Scores are aggregated and explained using XAI.
-7. Results and visuals are saved and returned via API.
+2. Video is stored in MinIO.
+3. Video is split into frames and audio chunks.
+4. Celery workers process frames and audio independently.
+5. Trained ML models evaluate content for deepfake characteristics.
+6. Grad-CAM and SHAP explain important features influencing predictions.
+7. LLM generates natural-language explanation from results.
+8. Results and outputs are returned via API (JSON + visuals).
 
 ## Explainable AI (XAI)
 
-- **Purpose:** Enable transparency behind predictions.
-- **Methods Used:**
-  - `Grad-CAM` – Heatmap for CNN layers in visual model
-  - `SHAP` / `LIME` – Feature importance for tabular/audio data
+- **Goal:** Make AI decisions understandable and transparent.
+- **Techniques Used:**
+  - `Grad-CAM` – Heatmap visualizations for CNN attention
+  - `SHAP` – Audio or metadata feature importance
 - **Outputs:**
-  - Frame-wise heatmaps
-  - Text-based explanation summaries
-  - Optional downloadable reports (PDF/JSON
+  - Per-frame/classification scores
+  - Heatmap overlays
+  - LLM-generated summaries of findings
+  - Optional downloadable JSON or PDF reports
 
-## AI Agents (Optional Module)
+## LLM Integration
 
-- Dynamically select detection path (audio/video/both).
-- Generate human-like explanations using LLMs.
-- Tools: `crewAI`, `langchain`, or custom agents.
+LLMs are used **not for routing**, but for two specific tasks:
 
-## Machine Learning Overview
+- **Explanation Generation**:  
+  Given model scores, timestamps, and highlighted regions, an LLM (e.g., GPT-4) produces a human-readable explanation like:  
+  _“Unnatural lip movement detected between 00:10 and 00:22, strongly suggesting manipulation.”_
 
-- **Visual Model:** CNN-based model trained on FaceForensics++, DFDC.
-- **Audio Model:** Spectrogram or MFCC-based voice classifiers.
-- **Metrics:** Accuracy, precision, recall, F1-score.
-- **Scoring:** Weighted average of visual and audio model results.
-
-## Output Example
-
-- Verdict: **Fake**
-- Confidence: **91.3%**
-- Fake Frames: **72%**
-- Audio Score: **85% fake likelihood**
-- XAI Summary: "Fake regions detected in facial area between 00:10–00:25"
-- Heatmap_url: "https://yourstorage.com/outputs/video123_heatmap.png"
-
-## Security & Scalability
-
-- Optional JWT authentication for secure API access.
-- Rate limiting and request validation.
-- Docker-based containerization for local and cloud deployment.
-- Compatible with GPU acceleration.
-- Scalable with object storage + task queue
-
-## Future Improvements
-
-- Add real-time video streaming support
-- Use reinforcement learning agents for adaptive decisions
-- Deploy to cloud (AWS/GCP) with Kubernetes
+- **(Optional) Frame/Metadata Evaluation**:  
+  LLMs like LLaVA may evaluate image/text prompts to supplement detection models for fine-grained cues.

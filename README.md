@@ -34,11 +34,10 @@ Deepfake content is a growing threat to the authenticity of digital media. This 
 - `MinIO` – S3-compatible storage for all media artifacts  
 - `PostgreSQL` – Metadata and result storage  
 - `TensorFlow` – Visual/audio deepfake classification  
-- `Grad-CAM & SHAP` – For visual and audio feature explanation  
 - `LLMs` – For natural language output  
 - `Docker` – For isolated development and deployment environments
 
-![image](https://github.com/user-attachments/assets/afe712c2-918f-4a05-be05-60ff955e6430)
+![Rick   Morty API │ │ (characters, episodes, …) (1)](https://github.com/user-attachments/assets/a3ae246f-0c1c-4109-89b7-d29b4846194a)
 
 ## Tech Stack
 

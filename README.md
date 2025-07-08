@@ -37,6 +37,7 @@ Deepfake content is a growing threat to the authenticity of digital media. This 
 - `LLMs` – For natural language output  
 - `Docker` – For isolated development and deployment environments
 
+
 ![image](https://github.com/user-attachments/assets/4f8d85ee-8237-4e9e-b873-f59d6c5a2900)
 
 ## Tech Stack

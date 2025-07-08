@@ -37,7 +37,7 @@ Deepfake content is a growing threat to the authenticity of digital media. This 
 - `LLMs` – For natural language output  
 - `Docker` – For isolated development and deployment environments
 
-![Rick   Morty API │ │ (characters, episodes, …) (1)](https://github.com/user-attachments/assets/a3ae246f-0c1c-4109-89b7-d29b4846194a)
+![image](https://github.com/user-attachments/assets/4f8d85ee-8237-4e9e-b873-f59d6c5a2900)
 
 ## Tech Stack
 
@@ -65,21 +65,6 @@ Deepfake content is a growing threat to the authenticity of digital media. This 
 7. LLM generates natural-language explanation from results.
 8. Results and outputs are returned via API (JSON + visuals).
 
-## Explainable AI (XAI)
-
-- **Goal:** Make AI decisions understandable and transparent.
-- **Techniques Used:**
-  - `Grad-CAM` – Heatmap visualizations for CNN attention
-  - `SHAP` – Audio or metadata feature importance
-- **Outputs:**
-  - Per-frame/classification scores
-  - Heatmap overlays
-  - LLM-generated summaries of findings
-  - Optional downloadable JSON or PDF reports
-
-## LLM Integration
-
-LLMs are used **not for routing**, but for two specific tasks:
 
 - **Explanation Generation**:  
   Given model scores, timestamps, and highlighted regions, an LLM (e.g., GPT-4) produces a human-readable explanation like:  

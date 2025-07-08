@@ -13,16 +13,12 @@ Deepfake content is a growing threat to the authenticity of digital media. This 
 
 ## Objectives
 
-- Build a backend pipeline for deepfake detection from user-uploaded videos.
-- Extract frames and audio segments for separate, optimized analysis.
-- Apply trained ML models to identify visual and audio inconsistencies.
-- Generate interpretable results using Explainable AI techniques.
-- Integrate LLMs to:
-  - Aid in interpreting detection metadata and frame outputs
-  - Produce user-friendly, natural language explanations
-- Ensure efficient, asynchronous processing with Celery workers.
-- Persist videos and detection results in MinIO and PostgreSQL.
-- Expose predictions and reports via a FastAPI-based REST API.
+- Build a backend system to detect deepfakes using LLM-based reasoning.
+- Use lightweight ML to preprocess and extract key frames/audio segments from uploaded videos.
+- Feed extracted segments to LLMs to identify manipulation and generate explanations.
+- Generate user-friendly, natural-language verdicts and justifications.
+- Store all artifacts (videos, results, explanations) in MinIO and PostgreSQL.
+- Serve results asynchronously via a FastAPI REST API.
 
 ## System Architecture
 
@@ -70,6 +66,3 @@ Deepfake content is a growing threat to the authenticity of digital media. This 
 - **Explanation Generation**:  
   Given model scores, timestamps, and highlighted regions, an LLM (e.g., GPT-4) produces a human-readable explanation like:  
   _“Unnatural lip movement detected between 00:10 and 00:22, strongly suggesting manipulation.”_
-
-- **(Optional) Frame/Metadata Evaluation**:  
-  LLMs like LLaVA may evaluate image/text prompts to supplement detection models for fine-grained cues.

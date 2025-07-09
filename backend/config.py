@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 class Settings:
-    PROJECT_NAME = "Lynx-Cam"
+    PROJECT_NAME = "X-DetectRT"
 
     # Feed settings
     FEED_FPS = int(os.getenv("FEED_FPS", 10))

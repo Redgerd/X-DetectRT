@@ -22,8 +22,6 @@ RUN chmod +x /app/start_workers.sh
 COPY wait-for-it.sh /wait-for-it.sh
 RUN chmod +x /wait-for-it.sh
 
-COPY data/ /app/data
-
 # run the server
 WORKDIR /app/backend
 EXPOSE 8000

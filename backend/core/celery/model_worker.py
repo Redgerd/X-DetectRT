@@ -101,19 +101,19 @@ def process_frame(camera_id: int, frame):
                 threshold_crossed_flag = centroid_near_line(cx, cy, cv2lines[0], cv2lines[1], threshold=det_threshold)
                 
                 if threshold_crossed_flag and intrusion_flag == b"False":
-                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 0, 255), 2) # draw red box around object
+                    annotated_frame = cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 0, 255), 2) # draw red box around object
                     handle_intrusion_event(camera_id)
                     redis_client.set(f"camera_{camera_id}_intrusion_flag", "True")
                     intrusion_flag = b"True"
                 
                 elif threshold_crossed_flag and intrusion_flag == b"True":
-                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 0, 255), 2) # draw red box around object
+                    annotated_frame = cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 0, 255), 2) # draw red box around object
                 
                 else:
-                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2) # draw green box around object
+                    annotated_frame = cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2) # draw green box around object
         
         if intrusion_flag == b"True":
-            cv2.putText(annotated_frame, "Intrusion Detected", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            annotated_frame = cv2.putText(annotated_frame, "Intrusion Detected", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
         redis_client.close()
 

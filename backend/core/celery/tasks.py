@@ -1,5 +1,5 @@
-from .worker import celery_app
 from billiard import current_process
+from core.celery.worker import celery_app
 
 @celery_app.task
 def add(x, y):

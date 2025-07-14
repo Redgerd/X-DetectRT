@@ -11,7 +11,9 @@ import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 
 # database stuff
-from core.database import test_db_connection  
+from core.database import test_db_connection
+from core.database import SessionLocal
+from models import Camera
 
 # routers (uncomment when needed)
 from api.auth.routes import router as auth_router  
@@ -20,6 +22,7 @@ from api.users.routes import router as users_router
 from api.user_cameras.routes import router as user_cameras_router
 from api.alerts.routes import router as alerts_router
 from api.intrusion.routes import router as intrusion_router
+from api.license_plate.routes import router as license_plate_router
 
 # websocket for alerts
 from api.alerts.websocket import router as alerts_websocket_router, start_redis_listener
@@ -27,6 +30,7 @@ from api.cameras.websocket import router as cameras_websocket_router, start_redi
 
 # celery
 from core.celery.worker import celery_app
+from core.celery.tasks import add
 
 app = FastAPI(
     title="Smart-Campus API",
@@ -56,7 +60,6 @@ def startup_db_check():
         logger.info("✅ Database connected successfully.")
     else:
         logger.error("❌ Database connection failed on startup. Exiting...")
-        exit(1)
 
 
 # IP middleware
@@ -80,6 +83,7 @@ app.include_router(cameras_router)
 app.include_router(user_cameras_router)
 app.include_router(alerts_router)
 app.include_router(intrusion_router)
+app.include_router(license_plate_router)
 
 # WebSocket Routes
 app.include_router(alerts_websocket_router)
@@ -89,8 +93,15 @@ app.include_router(cameras_websocket_router)
 # routes for startup and some for testing and health checks
 @app.on_event("startup")
 async def startup_event():
+    # getting all cam ids:
+    db = SessionLocal()
+    cameras = db.query(Camera).all()
+    camera_ids = [camera.id for camera in cameras]
+    for camera_id in camera_ids:
+        redis_client.set(f"camera_{camera_id}_websocket_active", "False")
     asyncio.create_task(start_redis_listener())
     asyncio.create_task(start_redis_frame_listener())
+    logging.info("Redis listener started.")
 
 
 @app.get("/")
@@ -100,14 +111,24 @@ async def root():
 
 @app.get("/health")
 async def health():
+    logging.info("Health check running...")
+
     result = celery_app.send_task("core.celery.tasks.add", (4,4))
+    from torch.cuda import is_available
+
+    logging.info("Torch CUDA available: %s", is_available())
     red = redis.from_url(settings.REDIS_URL)
+
+    logging.info("Redis ping: %s", red.ping())
+
+    logging.info("SQLAlchemy connection check: %s", test_db_connection())
 
     return  {
                 "status": "OK",
                 "celery_calculation": result.get(),
                 "redis_check": red.ping(),
-                "sqlalchemy_check": test_db_connection()
+                "sqlalchemy_check": test_db_connection(),
+                "torch_cuda_check": is_available(),
             }
 
 import numpy as np
@@ -117,7 +138,7 @@ import redis
 from core.celery.stream_worker import publish_frame
 from core.celery.model_worker import process_frame
 
-redis_client = redis.Redis(host="localhost", port=6379, db=0)
+redis_client = redis.from_url(settings.REDIS_URL)
 
 
 @app.post("/test_publish_feed/{camera_id}")
@@ -161,3 +182,13 @@ async def update_cameras():
     except Exception as e:
         logging.error(f"Error updating cameras: {str(e)}", exc_info=True)
         return {"status": "Error", "message": str(e)}
+    
+from core.celery.full_feed_worker import full_feed_worker_app
+
+@app.post("/gen-intr/{camera_id}")
+def generate_intrusion(camera_id: int) :
+    """
+    Generate sample intr that unsets after 5 seconds
+    """
+    full_feed_worker_app.send_task('core.celery.full_feed_worker.set_intrusion_flag', args=[camera_id], queue="feed_tasks")
+    return {"status" : f"Generated sample intrusion at camera {camera_id}"}

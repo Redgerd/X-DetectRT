@@ -21,14 +21,12 @@ from api.cameras.routes import router as cameras_router
 from api.users.routes import router as users_router
 from api.user_cameras.routes import router as user_cameras_router
 from api.intrusion.routes import router as intrusion_router
-from api.license_plate.routes import router as license_plate_router
 
 # websocket for alerts
 from api.cameras.websocket import router as cameras_websocket_router, start_redis_frame_listener
 
 # celery
 from core.celery.worker import celery_app
-from core.celery.tasks import add
 
 app = FastAPI(
     title="Smart-Campus API",
@@ -80,7 +78,6 @@ app.include_router(users_router)
 app.include_router(cameras_router)
 app.include_router(user_cameras_router)
 app.include_router(intrusion_router)
-app.include_router(license_plate_router)
 
 # WebSocket Routes
 app.include_router(cameras_websocket_router)
@@ -131,8 +128,7 @@ import numpy as np
 import cv2
 import logging
 import redis
-from core.celery.stream_worker import publish_frame
-from core.celery.model_worker import process_frame
+
 
 redis_client = redis.from_url(settings.REDIS_URL)
 
@@ -161,23 +157,21 @@ async def test_publish_feed(camera_id: int):
         return {"status": "Error", "message": str(e)}
     
 
-from core.celery.model_worker import update_cameras_for_model_workers
-from celery import group
 
-@app.post("/update_cameras_for_model_workers")
-async def update_cameras():
-    """
-    Updates the cameras list from the database. Use whenever there is a change in the cameras (add, update, remove).
-    Use with priority=0 to ensure that the cameras list is updated before processing any additional frames.
-    """
-    try:
-        # Call the Celery task to update cameras
-        task_group = group(update_cameras_for_model_workers.s() for _ in range(settings.MODEL_WORKERS))
-        task_group.apply_async(queue='model_tasks')
-        return {"status": "Success", "message": "Cameras updated successfully"}
-    except Exception as e:
-        logging.error(f"Error updating cameras: {str(e)}", exc_info=True)
-        return {"status": "Error", "message": str(e)}
+# @app.post("/update_cameras_for_model_workers")
+# async def update_cameras():
+#     """
+#     Updates the cameras list from the database. Use whenever there is a change in the cameras (add, update, remove).
+#     Use with priority=0 to ensure that the cameras list is updated before processing any additional frames.
+#     """
+#     try:
+#         # Call the Celery task to update cameras
+#         task_group = group(update_cameras_for_model_workers.s() for _ in range(settings.MODEL_WORKERS))
+#         task_group.apply_async(queue='model_tasks')
+#         return {"status": "Success", "message": "Cameras updated successfully"}
+#     except Exception as e:
+#         logging.error(f"Error updating cameras: {str(e)}", exc_info=True)
+#         return {"status": "Error", "message": str(e)}
     
 from core.celery.full_feed_worker import full_feed_worker_app
 

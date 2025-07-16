@@ -16,5 +16,8 @@ class Camera(Base):
     lines = Column(String)
     detect_intrusions = Column(Boolean, default=True) 
 
-
+    # ForeignKey to Users table
+    user_id = Column(Integer, ForeignKey("users.id"))  # <-- Add this lin
+    # Relationship with users
+    users = relationship("Users", back_populates="cameras")
     intrusions = relationship("Intrusion", back_populates="camera", cascade="all, delete-orphan")

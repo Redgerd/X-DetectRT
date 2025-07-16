@@ -12,8 +12,6 @@ from celery import Celery, group
 from models.cameras import Camera
 from sqlalchemy.orm import Session
 from core.database import SessionLocal
-from api.alerts.schemas import AlertBase
-from api.alerts.routes import create_alert
 from shapely.geometry import Polygon, MultiPolygon
 
 
@@ -303,11 +301,11 @@ def handle_intrusion_event(camera_id: int, frame: np.ndarray = None):
         cv2.imwrite(file_path, frame)
 
 
-    alert_data = AlertBase(camera_id=camera_id, timestamp=str(datetime.now().replace(microsecond=0)), 
-                           is_acknowledged=False, file_path=file_path)
-    db = SessionLocal()
-    create_alert(alert_data, db)
-    db.close()
+    # alert_data = AlertBase(camera_id=camera_id, timestamp=str(datetime.now().replace(microsecond=0)), 
+    #                        is_acknowledged=False, file_path=file_path)
+    # db = SessionLocal()
+    # create_alert(alert_data, db)
+    # db.close()
 
     redis_client = redis.from_url(settings.REDIS_URL)
     redis_client.set(f"camera_{camera_id}_intrusion_flag", "True")

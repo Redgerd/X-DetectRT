@@ -19,7 +19,6 @@ from models import Camera
 from api.auth.routes import router as auth_router  
 from api.cameras.routes import router as cameras_router
 from api.users.routes import router as users_router
-from api.user_cameras.routes import router as user_cameras_router
 from api.intrusion.routes import router as intrusion_router
 
 # websocket for alerts
@@ -76,7 +75,6 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(cameras_router)
-app.include_router(user_cameras_router)
 app.include_router(intrusion_router)
 
 # WebSocket Routes
@@ -92,7 +90,7 @@ async def startup_event():
     camera_ids = [camera.id for camera in cameras]
     for camera_id in camera_ids:
         redis_client.set(f"camera_{camera_id}_websocket_active", "False")
-    asyncio.create_task(start_redis_listener())
+    # asyncio.create_task(start_redis_listener())
     asyncio.create_task(start_redis_frame_listener())
     logging.info("Redis listener started.")
 
@@ -133,28 +131,28 @@ import redis
 redis_client = redis.from_url(settings.REDIS_URL)
 
 
-@app.post("/test_publish_feed/{camera_id}")
-async def test_publish_feed(camera_id: int):
-    """
-    Generates a synthetic random frame, processes it, and publishes the result.
-    """
+# @app.post("/test_publish_feed/{camera_id}")
+# async def test_publish_feed(camera_id: int):
+#     """
+#     Generates a synthetic random frame, processes it, and publishes the result.
+#     """
 
-    try:
+#     try:
       
-        # Create a random frame (720p resolution)
-        frame = np.random.randint(0, 256, (480, 640, 3), dtype=np.uint8)
-        # _, jpeg_bytes = cv2.imencode('.jpg', frame)
-        # frame = jpeg_bytes.tobytes()
-        # Process the synthetic frame
-        # result = publish_frame(camera_id, frame)
-        result = process_frame(camera_id, frame.tolist())
+#         # Create a random frame (720p resolution)
+#         frame = np.random.randint(0, 256, (480, 640, 3), dtype=np.uint8)
+#         # _, jpeg_bytes = cv2.imencode('.jpg', frame)
+#         # frame = jpeg_bytes.tobytes()
+#         # Process the synthetic frame
+#         # result = publish_frame(camera_id, frame)
+#         result = process_frame(camera_id, frame.tolist())
 
-        if result:
-            return {"status": "Success", "message": "Frame published successfully"}
+#         if result:
+#             return {"status": "Success", "message": "Frame published successfully"}
 
-    except Exception as e:
-        logging.error(f"Error in test_publish_feed: {str(e)}", exc_info=True)
-        return {"status": "Error", "message": str(e)}
+#     except Exception as e:
+#         logging.error(f"Error in test_publish_feed: {str(e)}", exc_info=True)
+#         return {"status": "Error", "message": str(e)}
     
 
 

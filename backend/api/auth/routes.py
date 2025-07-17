@@ -26,7 +26,7 @@ def login(user_credentials: UserLoginSchema, db: Session = Depends(get_db)):
         )
 
     # Generate a token with role-based expiry
-    token = create_access_token(user.id, user.username, user.is_admin)
+    token = create_access_token(user.id, user.username)
 
     return {"access_token": token, "token_type": "bearer"}
 
@@ -49,7 +49,6 @@ def register(user_data: UserCreateSchema, db: Session = Depends(get_db)):
         username=user_data.username,
         email=user_data.email,
         hashed_password=hashed_password,
-        is_admin=False  # Default users are not admins
     )
 
     db.add(new_user)

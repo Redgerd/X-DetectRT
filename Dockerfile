@@ -18,15 +18,11 @@ RUN pip install --upgrade pip
 RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt
 
 # pytorch with gpu support
-RUN --mount=type=cache,target=/root/.cache/pip pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+# RUN --mount=type=cache,target=/root/.cache/pip pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 
 # backend code and .env file
 COPY backend/ ./backend
 COPY .env /app/.env
-
-# add scripts and make them executable
-COPY start_workers.sh /app/start_workers.sh
-RUN chmod +x /app/start_workers.sh
 
 COPY wait-for-it.sh /wait-for-it.sh
 RUN chmod +x /wait-for-it.sh

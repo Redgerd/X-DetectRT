@@ -6,14 +6,6 @@ load_dotenv(override=True)
 class Settings:
     PROJECT_NAME = "Lynx-Cam"
 
-    # Feed settings
-    FEED_FPS = int(os.getenv("FEED_FPS", 10))
-    FEED_DIMS = os.getenv("FEED_DIMS", "(854,480)")
-    INTRUSION_FLAG_DURATION = int(os.getenv("INTRUSION_FLAG_DURATION", 30))
-    # stored as "True" in env, convert to bool
-    SHOW_INTRUSION_LINES = os.getenv("SHOW_INTRUSION_LINES", "True")
-    SHOW_INTRUSION_FLAG = os.getenv("SHOW_INTRUSION_FLAG", "True")
-
     # Database settings
     DATABASE_NAME = os.getenv("DATABASE_NAME", "SmartCampus")
     DATABASE_USER = os.getenv("DATABASE_USER", "postgres")
@@ -27,10 +19,8 @@ class Settings:
     # Celery settings
     REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
     CELERY_MODULE = os.getenv("CELERY_MODULE", "core.celery")
-    CELERY_WORKERS = int(os.getenv("CELERY_WORKERS", 1))
-    FEED_WORKERS = int(os.getenv("FEED_WORKERS", 2))
-    MODEL_WORKERS = int(os.getenv("MODEL_WORKERS", 1))
-    LICENSE_WORKERS= int(os.getenv("LICENSE_WORKERS", 2))
+    FRAME_SELECTION_WORKER = int(os.getenv("FRAME_SELECTION_WORKER", 2))
+    DEEPFAKE_DETECTION_WORKER = int(os.getenv("DEEPFAKE_DETECTION_WORKER", 1))
 
     # JWT settings
     SECRET_KEY = os.getenv("SECRET_KEY", "use_random_secret_key") 

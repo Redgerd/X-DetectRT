@@ -47,36 +47,94 @@ services:
     networks:
       - backend
 
-  # Celery Worker
-  celery:
+  celery-frame-worker:
     build: .
-    hostname: worker1
-    command: /app/start_workers.sh ${CELERY_WORKERS} ${FEED_WORKERS} ${MODEL_WORKERS} ${STREAM_WORKERS}
+    hostname: frame_worker_1 # Unique hostname
     environment:
-      - CELERY_MODULE=${CELERY_MODULE}
+      - CELERY_MODULE={CELERY_MODULE} # Assuming this is the correct module path
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONPATH=/app/backend
     volumes:
-      - .:/app
+      - ./backend:/app/backend
       - pip-cache:/root/.cache/pip
     depends_on:
       - redis
       - postgres-db
     networks:
       - backend
+    # This worker listens ONLY to the 'frame_selection_queue'
+    command: celery -A ${CELERY_MODULE}.celery_app worker -Q frame_selection_queue --loglevel=info --concurrency=2 # Adjusted concurrency and queue
+    healthcheck: 
+      test: ["CMD-SHELL", "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'"]
+      interval: 10s       # Check every 10 seconds
+      timeout: 5s         # Allow 5 seconds for the command to complete
+      retries: 5          # Retry 5 times before marking as unhealthy
+      start_period: 30s   # Give the worker 30 seconds to start up before checking
+
+  # # Celery Deepfake Detection Worker
+  # celery-detection-worker:
+  #   build: .
+  #   hostname: detection_worker_1 # Unique hostname
+  #   environment:
+  #     - CELERY_MODULE=backend.core.celery
+  #     - REDIS_URL=redis://redis:6379/0
+  #     - PYTHONPATH=/app # Added PYTHONPATH as discussed, if needed
+  #     # - NVIDIA_VISIBLE_DEVICES=all # Uncomment for GPU configuration
+  #     # - NVIDIA_DRIVER_CAPABILITIES=all # Uncomment if specific capabilities needed
+  #   volumes:
+  #     - .:/app
+  #     - pip-cache:/root/.cache/pip
+  #   depends_on:
+  #     - redis
+  #     - postgres-db
+  #   networks:
+  #     - backend
+  #   # This worker listens ONLY to the 'deepfake_detection_queue'
+  #   command: celery -A ${CELERY_MODULE}.celery_app worker -Q deepfake_detection_queue --loglevel=info --concurrency=1 # Adjusted concurrency and queue
+  #   # deploy: # Uncomment for GPU support
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: all
+  #   #           capabilities: [gpu]
+
+  # # Celery Notification/Logging Worker
+  # celery-notification-worker:
+  #   build: .
+  #   hostname: notification_worker_1 # Unique hostname
+  #   environment:
+  #     - CELERY_MODULE=backend.core.celery
+  #     - REDIS_URL=redis://redis:6379/0
+  #     - PYTHONPATH=/app # Added PYTHONPATH as discussed, if needed
+  #   volumes:
+  #     - .:/app
+  #     - pip-cache:/root/.cache/pip
+  #   depends_on:
+  #     - redis
+  #     - postgres-db
+  #   networks:
+  #     - backend
+  #   # This worker listens to 'websocket_messages_queue' and 'alert_logging_queue'
+  #   command: celery -A ${CELERY_MODULE}.celery_app worker -Q websocket_messages_queue,alert_logging_queue --loglevel=info --concurrency=4 # Adjusted concurrency and queues
 
   flower:
     container_name: flower
     build: .
-    command: celery -A ${CELERY_MODULE}.worker.celery_app -A ${CELERY_MODULE}.feed_worker.feed_worker_app -A ${CELERY_MODULE}.model_worker.model_worker_app flower --port=5555
+    command: sh -c "sleep 10 && celery -A ${CELERY_MODULE}.celery_app flower --port=5555"
+    environment:
+      - CELERY_MODULE={CELERY_MODULE} 
+      - PYTHONPATH=/app/backend
     volumes:
-      - .:/app
+      - ./backend:/app/backend
       - pip-cache:/root/.cache/pip
     ports:
       - "5555:5555"
     depends_on:
-      - redis
-      - postgres-db
-      - celery
-      - app
+      redis:
+          condition: service_healthy
+      celery-frame-worker:
+          condition: service_healthy 
     networks:
       - backend
 

@@ -11,7 +11,6 @@ class UserResponseSchema(BaseModel):
     id: int
     username: str
     email: Optional[EmailStr]
-    is_admin: bool
 
     class Config:
         from_attributes = True

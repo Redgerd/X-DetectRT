@@ -48,3 +48,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+llava_deepfake_model

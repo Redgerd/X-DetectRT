@@ -51,8 +51,8 @@ services:
     build: .
     hostname: frame_worker_1 # Unique hostname
     environment:
-      - CELERY_MODULE={CELERY_MODULE} # Assuming this is the correct module path
-      - REDIS_URL=redis://redis:6379/0
+      - CELERY_MODULE=${CELERY_MODULE}
+      - REDIS_URL=${REDIS_URL}
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
@@ -64,12 +64,16 @@ services:
       - backend
     # This worker listens ONLY to the 'frame_selection_queue'
     command: celery -A ${CELERY_MODULE}.celery_app worker -Q frame_selection_queue --loglevel=info --concurrency=2 # Adjusted concurrency and queue
-    healthcheck: 
-      test: ["CMD-SHELL", "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'"]
-      interval: 10s       # Check every 10 seconds
-      timeout: 5s         # Allow 5 seconds for the command to complete
-      retries: 5          # Retry 5 times before marking as unhealthy
-      start_period: 30s   # Give the worker 30 seconds to start up before checking
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'",
+        ]
+      interval: 10s # Check every 10 seconds
+      timeout: 5s # Allow 5 seconds for the command to complete
+      retries: 5 # Retry 5 times before marking as unhealthy
+      start_period: 30s # Give the worker 30 seconds to start up before checking
 
   # # Celery Deepfake Detection Worker
   # celery-detection-worker:
@@ -123,7 +127,7 @@ services:
     build: .
     command: sh -c "sleep 10 && celery -A ${CELERY_MODULE}.celery_app flower --port=5555"
     environment:
-      - CELERY_MODULE={CELERY_MODULE} 
+      - CELERY_MODULE={CELERY_MODULE}
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
@@ -132,9 +136,9 @@ services:
       - "5555:5555"
     depends_on:
       redis:
-          condition: service_healthy
+        condition: service_healthy
       celery-frame-worker:
-          condition: service_healthy 
+        condition: service_healthy
     networks:
       - backend
 

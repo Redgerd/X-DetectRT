@@ -49,7 +49,7 @@ services:
 
   celery-frame-worker:
     build: .
-    hostname: frame_worker_1 # Unique hostname
+    hostname: frame_worker # Unique hostname
     environment:
       - CELERY_MODULE=${CELERY_MODULE}
       - REDIS_URL=${REDIS_URL}
@@ -103,31 +103,14 @@ services:
   #   #           count: all
   #   #           capabilities: [gpu]
 
-  # # Celery Notification/Logging Worker
-  # celery-notification-worker:
-  #   build: .
-  #   hostname: notification_worker_1 # Unique hostname
-  #   environment:
-  #     - CELERY_MODULE=backend.core.celery
-  #     - REDIS_URL=redis://redis:6379/0
-  #     - PYTHONPATH=/app # Added PYTHONPATH as discussed, if needed
-  #   volumes:
-  #     - .:/app
-  #     - pip-cache:/root/.cache/pip
-  #   depends_on:
-  #     - redis
-  #     - postgres-db
-  #   networks:
-  #     - backend
-  #   # This worker listens to 'websocket_messages_queue' and 'alert_logging_queue'
-  #   command: celery -A ${CELERY_MODULE}.celery_app worker -Q websocket_messages_queue,alert_logging_queue --loglevel=info --concurrency=4 # Adjusted concurrency and queues
-
   flower:
     container_name: flower
     build: .
     command: sh -c "sleep 10 && celery -A ${CELERY_MODULE}.celery_app flower --port=5555"
     environment:
-      - CELERY_MODULE={CELERY_MODULE}
+      - CELERY_MODULE=${CELERY_MODULE}
+      - REDIS_URL=${REDIS_URL}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}  
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
@@ -135,10 +118,8 @@ services:
     ports:
       - "5555:5555"
     depends_on:
-      redis:
-        condition: service_healthy
-      celery-frame-worker:
-        condition: service_healthy
+      - celery-frame-worker
+      - redis
     networks:
       - backend
 

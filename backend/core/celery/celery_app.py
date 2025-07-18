@@ -33,7 +33,6 @@ celery_app.conf.update(
         Queue('frame_selection_queue', routing_key='frame_selection'),
         Queue('deepfake_detection_queue', routing_key='deepfake_detection'),
         Queue('websocket_messages_queue', routing_key='websocket_messages'),
-        Queue('alert_logging_queue', routing_key='alert_logging'),
     ),
     task_default_queue = 'default',
     task_default_exchange = 'tasks',
@@ -42,7 +41,6 @@ celery_app.conf.update(
     task_routes = {
         'backend.core.celery.frame_tasks.run_frame_selection_pipeline': {'queue': 'frame_selection_queue'},
         'backend.core.celery.detection_tasks.perform_detection': {'queue': 'deepfake_detection_queue'},
-        'backend.core.celery.tasks.send_websocket_message': {'queue': 'websocket_messages_queue'},
     }
 )
 # Autodiscover tasks from specified modules

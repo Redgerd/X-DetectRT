@@ -1,4 +1,4 @@
-# for local development - do not use in production without modifications (ports exposed, etc.)
+
 services:
   # PostgreSQL
   postgres-db:
@@ -29,9 +29,12 @@ services:
       timeout: 10s
       retries: 3
 
-  # FastAPI App
+  # FastAPI App (only this builds)
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: my-fastapi-app:latest
     container_name: fastapi_app
     environment:
       REDIS_URL: ${REDIS_URL}
@@ -47,9 +50,11 @@ services:
     networks:
       - backend
 
+  # Celery Frame Worker (reuses image)
   celery-frame-worker:
-    build: .
-    hostname: frame_worker # Unique hostname
+    image: my-fastapi-app:latest
+    hostname: frame_worker
+    container_name: celery-frame-worker
     environment:
       - CELERY_MODULE=${CELERY_MODULE}
       - REDIS_URL=${REDIS_URL}
@@ -62,55 +67,28 @@ services:
       - postgres-db
     networks:
       - backend
-    # This worker listens ONLY to the 'frame_selection_queue'
-    command: celery -A ${CELERY_MODULE}.celery_app worker -Q frame_selection_queue --loglevel=info --concurrency=2 # Adjusted concurrency and queue
+    command: >
+      celery -A ${CELERY_MODULE}.celery_app worker
+      -Q frame_selection_queue
+      --loglevel=info
+      --concurrency=2
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'",
-        ]
-      interval: 10s # Check every 10 seconds
-      timeout: 5s # Allow 5 seconds for the command to complete
-      retries: 5 # Retry 5 times before marking as unhealthy
-      start_period: 30s # Give the worker 30 seconds to start up before checking
+      test: ["CMD-SHELL", "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
-  # # Celery Deepfake Detection Worker
-  # celery-detection-worker:
-  #   build: .
-  #   hostname: detection_worker_1 # Unique hostname
-  #   environment:
-  #     - CELERY_MODULE=backend.core.celery
-  #     - REDIS_URL=redis://redis:6379/0
-  #     - PYTHONPATH=/app # Added PYTHONPATH as discussed, if needed
-  #     # - NVIDIA_VISIBLE_DEVICES=all # Uncomment for GPU configuration
-  #     # - NVIDIA_DRIVER_CAPABILITIES=all # Uncomment if specific capabilities needed
-  #   volumes:
-  #     - .:/app
-  #     - pip-cache:/root/.cache/pip
-  #   depends_on:
-  #     - redis
-  #     - postgres-db
-  #   networks:
-  #     - backend
-  #   # This worker listens ONLY to the 'deepfake_detection_queue'
-  #   command: celery -A ${CELERY_MODULE}.celery_app worker -Q deepfake_detection_queue --loglevel=info --concurrency=1 # Adjusted concurrency and queue
-  #   # deploy: # Uncomment for GPU support
-  #   #   resources:
-  #   #     reservations:
-  #   #       devices:
-  #   #         - driver: nvidia
-  #   #           count: all
-  #   #           capabilities: [gpu]
-
+  # Flower (reuses image)
   flower:
+    image: my-fastapi-app:latest
     container_name: flower
-    build: .
-    command: sh -c "sleep 10 && celery -A ${CELERY_MODULE}.celery_app flower --port=5555"
+    command: >
+      sh -c "sleep 10 && celery -A ${CELERY_MODULE}.celery_app flower --port=5555"
     environment:
       - CELERY_MODULE=${CELERY_MODULE}
       - REDIS_URL=${REDIS_URL}
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL}  
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend

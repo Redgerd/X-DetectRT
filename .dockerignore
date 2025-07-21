@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.git
+.vscode/
+*.mp4
+node_modules/
+venv/
+*.sqlite3
+*.db

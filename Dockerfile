@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
+FROM nvidia/cuda:12.6.0-runtime-ubuntu22.04
 
 # Install Python 3.12 + system deps
 RUN apt-get update && \

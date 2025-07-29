@@ -51,4 +51,4 @@ dist-ssr
 *.sln
 *.sw?
 
-llava_deepfake_model
+deepfake-env

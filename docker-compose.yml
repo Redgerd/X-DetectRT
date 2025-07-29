@@ -79,7 +79,40 @@ services:
       retries: 5
       start_period: 30s
 
-  # Flower (reuses image)
+  celery-detection-worker:
+    build: .
+    hostname: detection_worker
+    environment:
+      - CELERY_MODULE=${CELERY_MODULE}
+      - REDIS_URL=${REDIS_URL}
+      - PYTHONPATH=/app
+    volumes:
+      - .:/app
+      - pip-cache:/root/.cache/pip
+    depends_on:
+      - redis
+      - postgres-db
+    networks:
+      - backend
+    command: celery -A ${CELERY_MODULE}.celery_app worker -Q deepfake_detection_queue --loglevel=info --concurrency=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   flower:
     image: my-fastapi-app:latest
     container_name: flower

@@ -3,6 +3,8 @@
 .venv
 env/
 
+backend/ml_models/
+
 # python specific
 __pycache__
 __pycache__/*

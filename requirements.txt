@@ -16,3 +16,5 @@ sqlalchemy
 ultralytics
 uvicorn[standard]
 shapely
+tensorflow
+keras

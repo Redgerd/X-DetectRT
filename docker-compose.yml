@@ -55,6 +55,7 @@ services:
     image: my-fastapi-app:latest
     hostname: frame_worker
     container_name: celery-frame-worker
+    working_dir: /app/backend
     environment:
       - CELERY_MODULE=${CELERY_MODULE}
       - REDIS_URL=${REDIS_URL}
@@ -80,14 +81,15 @@ services:
       start_period: 30s
 
   celery-detection-worker:
-    build: .
+    image: my-fastapi-app:latest
     hostname: detection_worker
+    working_dir: /app/backend
     environment:
       - CELERY_MODULE=${CELERY_MODULE}
       - REDIS_URL=${REDIS_URL}
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app/backend
     volumes:
-      - .:/app
+      - ./backend:/app/backend
       - pip-cache:/root/.cache/pip
     depends_on:
       - redis
@@ -116,6 +118,7 @@ services:
   flower:
     image: my-fastapi-app:latest
     container_name: flower
+    working_dir: /app/backend
     command: >
       sh -c "sleep 10 && celery -A ${CELERY_MODULE}.celery_app flower --port=5555"
     environment:

@@ -48,6 +48,7 @@ services:
       - redis
     networks:
       - backend
+    runtime: nvidia
 
   # Celery Frame Worker (reuses image)
   celery-frame-worker:
@@ -78,6 +79,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    runtime: nvidia
 
   celery-detection-worker:
     image: my-fastapi-app:latest
@@ -96,13 +98,7 @@ services:
     networks:
       - backend
     command: celery -A ${CELERY_MODULE}.celery_app worker -Q deepfake_detection_queue --loglevel=info --concurrency=1
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    runtime: nvidia
     healthcheck:
       test:
         [
@@ -135,6 +131,7 @@ services:
       - redis
     networks:
       - backend
+    runtime: nvidia
 
 networks:
   backend:

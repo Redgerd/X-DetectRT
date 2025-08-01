@@ -15,31 +15,32 @@ MODEL_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "..", "ml_models", "Xc
 # Logger
 logger = logging.getLogger(__name__)
 
-# Load model when worker starts
-@worker_process_init.connect
-def load_xception_model(**kwargs):
-    global xception_model
-    try:
-        # Debug: Print current working directory and model path
-        logger.info(f"Current working directory: {os.getcwd()}")
-        logger.info(f"Model path: {MODEL_PATH}")
-        logger.info(f"Absolute model path: {os.path.abspath(MODEL_PATH)}")
+# # Load model when worker starts
+# @worker_process_init.connect
+# def load_xception_model(**kwargs):
+#     global xception_model
+#     try:
+#         # Debug: Print current working directory and model path
+#         logger.info(f"Current working directory: {os.getcwd()}")
+#         logger.info(f"Model path: {MODEL_PATH}")
+#         logger.info(f"Absolute model path: {os.path.abspath(MODEL_PATH)}")
         
-        if not os.path.exists(MODEL_PATH):
-            logger.error(f"Model file not found at {MODEL_PATH}")
-            # List contents of ml_models directory if it exists
-            ml_models_dir = os.path.dirname(MODEL_PATH)
-            if os.path.exists(ml_models_dir):
-                logger.info(f"Contents of {ml_models_dir}: {os.listdir(ml_models_dir)}")
-            else:
-                logger.error(f"ml_models directory not found at {ml_models_dir}")
-            return
+#         if not os.path.exists(MODEL_PATH):
+#             logger.error(f"Model file not found at {MODEL_PATH}")
+#             # List contents of ml_models directory if it exists
+#             ml_models_dir = os.path.dirname(MODEL_PATH)
+#             if os.path.exists(ml_models_dir):
+#                 logger.info(f"Contents of {ml_models_dir}: {os.listdir(ml_models_dir)}")
+#             else:
+#                 logger.error(f"ml_models directory not found at {ml_models_dir}")
+#             return
 
-        logger.info("Loading XceptionNet model...")
-        xception_model = load_model(MODEL_PATH, compile=False)
-        logger.info("XceptionNet model loaded successfully.")
-    except Exception as e:
-        logger.exception(f"Failed to load XceptionNet model: {e}")
+#         logger.info("Loading XceptionNet model...")
+#         xception_model = load_model(MODEL_PATH, compile=False)
+#         logger.info("XceptionNet model loaded successfully.")
+#     except Exception as e:
+#         logger.exception(f"Failed to load XceptionNet model: {e}")
+
 
 # Used to test if the model is loaded properly
 def confirm_model_loaded():

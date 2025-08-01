@@ -18,3 +18,7 @@ uvicorn[standard]
 shapely
 tensorflow[and-cuda]
 keras
+mtcnn
+pillow
+opencv-python-headless
+numpy

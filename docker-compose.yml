@@ -42,6 +42,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app/backend
+      - ./uploads:/app/uploads 
       - pip-cache:/root/.cache/pip
     depends_on:
       - postgres-db
@@ -63,6 +64,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - pip-cache:/root/.cache/pip
+      - ./uploads:/app/uploads
     depends_on:
       - redis
       - postgres-db
@@ -92,6 +94,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - pip-cache:/root/.cache/pip
+      - ./uploads:/app/uploads
     depends_on:
       - redis
       - postgres-db
@@ -124,6 +127,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - pip-cache:/root/.cache/pip
+      - ./uploads:/app/uploads
     ports:
       - "5555:5555"
     depends_on:

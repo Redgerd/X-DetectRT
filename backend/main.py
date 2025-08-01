@@ -4,7 +4,7 @@
 import asyncio
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI,  WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 import redis.asyncio as redis
@@ -14,8 +14,8 @@ from config import settings
 # Internal Imports
 from core.database import test_db_connection
 from core.celery.celery_app import celery_app
-from api.auth.routes import router as auth_router
-
+from core.celery.frame_selection import extract_faces_with_optical_flow
+import os, uuid
 # Model loading is handled by Celery workers, not the main FastAPI app
 # confirm_model_loaded();
 
@@ -69,6 +69,14 @@ async def shutdown_event():
         await redis_client.close()
         logger.info("Redis client closed.")
     logger.info("App shutdown complete.")
+    
+# Routes
+from api.auth.routes import router as auth_router
+from api.video.websocket import router as video_ws_router
+from api.video.routes import router as video_router
+
+app.include_router(video_ws_router)
+app.include_router(video_router)
 
 # Routes
 app.include_router(auth_router)
@@ -111,3 +119,5 @@ async def health():
         logger.error(f"Celery ping failed: {e}", exc_info=True)
 
     return health_status
+
+

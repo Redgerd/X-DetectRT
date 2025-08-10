@@ -31,7 +31,7 @@ redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
 @shared_task(name="frame_selection_pipeline.run")
 def extract_faces_with_optical_flow(video_path):
     """
-    Extract first 3 frames from the video and return as base64.
+    Extract first 60 frames from the video and return as base64.
     """
 
     # Debug: Check if file exists
@@ -80,7 +80,7 @@ def extract_faces_with_optical_flow(video_path):
 
     task_id = os.path.basename(video_path).replace(".mp4", "")
     result = {
-        "message": "First 3 frames extracted successfully",
+        "message": "First 60 frames extracted successfully",
         "video_path": str(video_path),
         "preview_frames": preview_frames
     }

@@ -29,11 +29,10 @@ WIDTH = 400
 redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 @shared_task(name="frame_selection_pipeline.run")
-def extract_faces_with_optical_flow(video_path):
+def extract_faces_with_optical_flow(video_path, task_id=None):
     """
-    Extract first 60 frames from the video and return as base64.
+    Extract frames from the video and publish them to Redis for real-time updates.
     """
-
     # Debug: Check if file exists
     if not os.path.exists(video_path):
         print(f"[ERROR] Video file not found: {video_path}")
@@ -56,17 +55,39 @@ def extract_faces_with_optical_flow(video_path):
 
     frames = []
     count = 0
+    max_frames = 60
 
-    while count < 60:
+    while count < max_frames:
         ret, frame = cap.read()
         if not ret:
             print(f"[DEBUG] Frame read failed at count={count}")
             break
+        
+        # Process frame immediately and publish to Redis
+        try:
+            # Convert frame to base64
+            success, buffer = cv2.imencode(".jpg", frame)
+            if success:
+                frame_base64 = base64.b64encode(buffer).decode("utf-8")
+                # Publish frame to Redis channel
+                frame_data = {
+                    "type": "frame_ready",
+                    "frame_index": count,
+                    "frame_data": frame_base64,
+                    "timestamp": count / 30.0,  # Assuming 30fps, adjust as needed
+                    "task_id": task_id
+                }
+                redis_client.publish(f"task_frames:{task_id}", json.dumps(frame_data))
+                print(f"[DEBUG] Published frame {count} to Redis")
+        except Exception as e:
+            print(f"[ERROR] Failed to publish frame {count}: {e}")
+        
         frames.append(frame)
         count += 1
 
     cap.release()
 
+    # Store all frames in Redis for final result
     preview_frames = []
     for frame_bgr in frames:
         success, buffer = cv2.imencode(".jpg", frame_bgr)
@@ -78,11 +99,14 @@ def extract_faces_with_optical_flow(video_path):
     while len(preview_frames) < 3:
         preview_frames.append("")
 
-    task_id = os.path.basename(video_path).replace(".mp4", "")
+    if not task_id:
+        task_id = os.path.basename(video_path).replace(".mp4", "")
+    
     result = {
-        "message": "First 60 frames extracted successfully",
+        "message": f"First {count} frames extracted successfully",
         "video_path": str(video_path),
-        "preview_frames": preview_frames
+        "preview_frames": preview_frames,
+        "total_frames": count
     }
 
     redis_client.set(f"task_result:{task_id}", json.dumps(result))

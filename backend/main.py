@@ -21,7 +21,7 @@ import os, uuid
 
 # FastAPI App Setup
 app = FastAPI(
-    title="X-DETEXTRT API",
+    title="X-DETECT API",
     description="API for deepfake project.",
     version="1.0.0",
     openapi_tags=[{"name": "Auth", "description": "Authentication related endpoints"}],

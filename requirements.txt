@@ -10,6 +10,7 @@ psycopg2-binary
 pytest 
 python-jose[cryptography]
 python-multipart
+google-auth
 redis
 sqlmodel
 sqlalchemy

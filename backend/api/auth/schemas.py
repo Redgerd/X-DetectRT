@@ -27,3 +27,7 @@ class TokenSchema(BaseModel):
     """Schema for JWT token response"""
     access_token: str
     token_type: str
+
+class GoogleAuthSchema(BaseModel):
+    """Schema for Google OAuth ID token exchange"""
+    id_token: str

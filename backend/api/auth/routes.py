@@ -3,7 +3,10 @@ from sqlalchemy.orm import Session
 from core.database import get_db
 from models.users import Users
 from api.auth.security import create_access_token
-from api.auth.schemas import UserLoginSchema, TokenSchema, UserCreateSchema
+from api.auth.schemas import UserLoginSchema, TokenSchema, UserCreateSchema, GoogleAuthSchema
+from config import settings
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 import bcrypt
 from fastapi.security import OAuth2PasswordRequestForm
 
@@ -26,7 +29,7 @@ def login(user_credentials: UserLoginSchema, db: Session = Depends(get_db)):
         )
 
     # Generate a token with role-based expiry
-    token = create_access_token(user.id, user.username)
+    token = create_access_token(user.id, user.username, False)
 
     return {"access_token": token, "token_type": "bearer"}
 
@@ -64,3 +67,39 @@ def form_data_login(form_data: OAuth2PasswordRequestForm=Depends(), db: Session 
     """
 
     return login(user_credentials=UserLoginSchema(username=form_data.username, password=form_data.password), db=db)
+
+
+@router.post("/google", response_model=TokenSchema)
+def google_login(payload: GoogleAuthSchema, db: Session = Depends(get_db)):
+    if not settings.GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Google auth not configured")
+
+    try:
+        idinfo = google_id_token.verify_oauth2_token(
+            payload.id_token,
+            google_requests.Request(),
+            settings.GOOGLE_CLIENT_ID,
+        )
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
+
+    email = idinfo.get("email")
+    name = idinfo.get("name") or (email.split("@")[0] if email else None)
+
+    if not email or not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Google token missing required claims")
+
+    user = db.query(Users).filter(Users.email == email).first()
+
+    if not user:
+        user = Users(
+            username=name,
+            email=email,
+            hashed_password="",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    token = create_access_token(user.id, user.username, False)
+    return {"access_token": token, "token_type": "bearer"}

@@ -103,3 +103,11 @@ def google_login(payload: GoogleAuthSchema, db: Session = Depends(get_db)):
 
     token = create_access_token(user.id, user.username, False)
     return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/logout")
+def logout():
+    """
+    Stateless logout endpoint. Clients should delete stored JWT.
+    """
+    return {"message": "Logged out"}

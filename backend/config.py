@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 class Settings:
-    PROJECT_NAME = "Lynx-Cam"
+    PROJECT_NAME = "X-Detect-RT"
 
     # Database settings
-    DATABASE_NAME = os.getenv("DATABASE_NAME", "SmartCampus")
+    DATABASE_NAME = os.getenv("DATABASE_NAME", "X-Detect-RT")
     DATABASE_USER = os.getenv("DATABASE_USER", "postgres")
     DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD", "yourpassword")
     DATABASE_HOST = os.getenv("DATABASE_HOST", "localhost")
@@ -28,6 +28,9 @@ class Settings:
     ALGORITHM = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 3000))  
     ADMIN_TOKEN_EXPIRE_MINUTES  = int(os.getenv("ADMIN_TOKEN_EXPIRE_MINUTES", 2000))  
+
+    # OAuth settings
+    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "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")
 
     # SMTP settings for email notifications
     SMTP_SERVER = os.getenv("SMTP_SERVER")

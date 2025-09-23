@@ -10,9 +10,17 @@ psycopg2-binary
 pytest 
 python-jose[cryptography]
 python-multipart
+google-auth
 redis
 sqlmodel
 sqlalchemy
 ultralytics
 uvicorn[standard]
 shapely
+tensorflow[and-cuda]
+keras
+mtcnn
+pillow
+opencv-python-headless
+numpy
+requests

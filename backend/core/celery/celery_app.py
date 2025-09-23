@@ -39,13 +39,13 @@ celery_app.conf.update(
     task_default_routing_key = 'default',
 
     task_routes = {
-        'backend.core.celery.frame_tasks.run_frame_selection_pipeline': {'queue': 'frame_selection_queue'},
+        'frame_selection_pipeline.run': {'queue': 'frame_selection_queue'},
         'backend.core.celery.detection_tasks.perform_detection': {'queue': 'deepfake_detection_queue'},
     }
 )
 # Autodiscover tasks from specified modules
 celery_app.autodiscover_tasks([
-    "core.celery.frame_tasks",
+    "core.celery.frame_selection",
     "core.celery.detection_tasks",
     "core.celery.tasks",
 ], force=True)

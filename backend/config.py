@@ -9,7 +9,7 @@ class Settings:
     # Database settings
     DATABASE_NAME = os.getenv("DATABASE_NAME", "X-Detect-RT")
     DATABASE_USER = os.getenv("DATABASE_USER", "postgres")
-    DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD", "yourpassword")
+    DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD", "1234")
     DATABASE_HOST = os.getenv("DATABASE_HOST", "localhost")
     DATABASE_PORT = int(os.getenv("DATABASE_PORT", 5432)) 
     DATABASE_DOCKER_NAME = os.getenv("DATABASE_DOCKER_NAME", "postgres-db")

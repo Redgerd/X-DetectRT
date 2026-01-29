@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # use DATABASE_URL for local development and DATABASE_DOCKER_URL for if postgres is running in a docker container
 # DATABASE_URL = settings.DATABASE_URL
 try:
-    DATABASE_URL = settings.DATABASE_DOCKER_URL
+    DATABASE_URL = settings.DATABASE_NAME
     engine = create_engine(DATABASE_URL)
 except Exception as e:
     DATABASE_URL = settings.DATABASE_URL

@@ -27,7 +27,7 @@ async def websocket_task(ws: WebSocket):
     # Save incoming video
     file_path = f"{UPLOAD_DIR}/{task_id}.mp4"
     with open(file_path, "wb") as f:
-        while True:
+       while True:
             data = await ws.receive()
             if "bytes" in data and data["bytes"]:
                 f.write(data["bytes"])

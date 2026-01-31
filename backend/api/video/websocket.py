@@ -4,9 +4,9 @@ from fastapi import WebSocket, APIRouter
 from core.celery.frame_selection import extract_faces_with_optical_flow
 import asyncio
 import json
+from json import JSONDecodeError
 import redis
 from config import settings
-
 UPLOAD_DIR = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -16,10 +16,19 @@ router = APIRouter()
 async def websocket_task(ws: WebSocket):
     await ws.accept()
 
-    # Receive task_id
+    # Receive task_id and video_duration
     msg = await ws.receive_text()
-    task_id = msg.strip()
-    print(f"Subscribed to task: {task_id}")
+    try:
+        # Try parsing as JSON (new format with video_duration)
+        data = json.loads(msg)
+        task_id = data.get("task_id", "").strip()
+        video_duration = data.get("video_duration", None)
+    except JSONDecodeError:
+        # Fall back to old format (just task_id)
+        task_id = msg.strip()
+        video_duration = None
+    
+    print(f"Subscribed to task: {task_id}, video_duration: {video_duration}")
 
     # Ask frontend to start sending video
     await ws.send_text("SEND_VIDEO")
@@ -38,8 +47,12 @@ async def websocket_task(ws: WebSocket):
     print(f"Starting frame extraction for task: {task_id}")
     
     try:
-        # Start the task
-        celery_task = extract_faces_with_optical_flow.delay(file_path, task_id=task_id)
+        # Start the task with video_duration if provided
+        celery_task = extract_faces_with_optical_flow.delay(
+            file_path, 
+            task_id=task_id,
+            video_duration=video_duration
+        )
         
         # Send processing status
         await ws.send_text("Processing...")

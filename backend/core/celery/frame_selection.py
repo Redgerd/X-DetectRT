@@ -28,93 +28,16 @@ HEIGHT = 300
 WIDTH = 400
 redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
-# @shared_task(name="frame_selection_pipeline.run")
-# def extract_faces_with_optical_flow(video_path, task_id=None):
-#     """
-#     Extract frames from the video and publish them to Redis for real-time updates.
-#     """
-#     # Debug: Check if file exists
-#     if not os.path.exists(video_path):
-#         print(f"[ERROR] Video file not found: {video_path}")
-#         result = {
-#             "message": f"Video file not found: {video_path}",
-#             "video_path": str(video_path),
-#             "preview_frames": ["", "", ""]
-#         }
-#         return result
 
-#     cap = cv2.VideoCapture(video_path)
-#     if not cap.isOpened():
-#         print(f"[ERROR] Failed to open video: {video_path}")
-#         result = {
-#             "message": f"Failed to open video: {video_path}",
-#             "video_path": str(video_path),
-#             "preview_frames": ["", "", ""]
-#         }
-#         return result
+def seconds_to_hhmmss(seconds):
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
 
-#     frames = []
-#     count = 0
-#     max_frames = 60
 
-#     while count < max_frames:
-#         ret, frame = cap.read()
-#         if not ret:
-#             print(f"[DEBUG] Frame read failed at count={count}")
-#             break
-        
-#         # Process frame immediately and publish to Redis
-#         try:
-#             # Convert frame to base64
-#             success, buffer = cv2.imencode(".jpg", frame)
-#             if success:
-#                 frame_base64 = base64.b64encode(buffer).decode("utf-8")
-#                 # Publish frame to Redis channel
-#                 frame_data = {
-#                     "type": "frame_ready",
-#                     "frame_index": count,
-#                     "frame_data": frame_base64,
-#                     "timestamp": count / 30.0,  # Assuming 30fps, adjust as needed
-#                     "task_id": task_id
-#                 }
-#                 redis_client.publish(f"task_frames:{task_id}", json.dumps(frame_data))
-#                 print(f"[DEBUG] Published frame {count} to Redis")
-#         except Exception as e:
-#             print(f"[ERROR] Failed to publish frame {count}: {e}")
-        
-#         frames.append(frame)
-#         count += 1
-
-#     cap.release()
-
-#     # Store all frames in Redis for final result
-#     preview_frames = []
-#     for frame_bgr in frames:
-#         success, buffer = cv2.imencode(".jpg", frame_bgr)
-#         if success:
-#             preview_frames.append(base64.b64encode(buffer).decode("utf-8"))
-#         else:
-#             preview_frames.append("")
-
-#     while len(preview_frames) < 3:
-#         preview_frames.append("")
-
-#     if not task_id:
-#         task_id = os.path.basename(video_path).replace(".mp4", "")
-    
-#     result = {
-#         "message": f"First {count} frames extracted successfully",
-#         "video_path": str(video_path),
-#         "preview_frames": preview_frames,
-#         "total_frames": count
-#     }
-
-#     redis_client.set(f"task_result:{task_id}", json.dumps(result))
-#     return result
-
-# Test
 @shared_task(name="frame_selection_pipeline.run")
-def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60):
+def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, video_duration=None):
 
     if not task_id:
         task_id = os.path.basename(video_path).replace(".mp4", "")
@@ -126,6 +49,21 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60):
     if not cap.isOpened():
         return {"error": "Failed to open video", "task_id": task_id}
 
+    # Get actual FPS and duration from video
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps == 0 or fps is None:
+        fps = 30.0  # Fallback to 30 FPS if not detected
+    
+    # Get video duration in seconds
+    total_duration = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0  # Current position
+    frame_count_total = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    if frame_count_total > 0 and fps > 0:
+        total_duration = frame_count_total / fps
+    elif video_duration:
+        total_duration = video_duration
+    
+    logger.info(f"Video FPS: {fps}, Total Duration: {total_duration:.2f}s, Total Frames: {frame_count_total}")
+    
     detector = MTCNN()
     prev_gray = None
     processed_faces = []
@@ -178,6 +116,11 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60):
         try:
             frame_bgr = cv2.cvtColor(face_for_model, cv2.COLOR_RGB2BGR)
             success, buffer = cv2.imencode(".jpg", frame_bgr)
+            
+            # Get actual frame position from video for accurate timestamp
+            current_frame_pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
+            timestamp_sec = current_frame_pos / fps if fps > 0 else frame_count / fps
+
             if success:
                 redis_client.publish(
                     f"task_frames:{task_id}",
@@ -185,7 +128,10 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60):
                         "type": "frame_ready",
                         "frame_index": frame_count,
                         "frame_data": base64.b64encode(buffer).decode("utf-8"),
-                        "timestamp": frame_count / 30.0,
+                        "timestamp": seconds_to_hhmmss(timestamp_sec),
+                        "timestamp_seconds": round(timestamp_sec, 3),
+                        "fps": round(fps, 2),
+                        "video_duration": round(total_duration, 2),
                         "task_id": task_id
                     })
                 )

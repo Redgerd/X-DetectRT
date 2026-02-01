@@ -16,7 +16,6 @@ from mtcnn import MTCNN  # Face detection
 from PIL import Image     # For resizing and image conversion
 from tensorflow.keras.applications.inception_v3 import preprocess_input
 import os
-from .process_face import process_faces_task
 from .spatialDetection import run_chained_detection
 
 # Import the deepfake detection task from its new module
@@ -26,7 +25,6 @@ from .spatialDetection import run_chained_detection
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-TIME_STEPS = 60
 HEIGHT = 300
 WIDTH = 400
 redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)

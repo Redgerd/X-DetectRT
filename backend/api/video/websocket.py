@@ -1,8 +1,8 @@
 import os
 import uuid
+import asyncio
 from fastapi import WebSocket, APIRouter
 from core.celery.frame_selection import extract_faces_with_optical_flow
-import asyncio
 import json
 from json import JSONDecodeError
 import redis
@@ -11,6 +11,9 @@ UPLOAD_DIR = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter()
+
+# Small delay between sending frames to prevent batching
+FRAME_SEND_DELAY = 0.05  # 50ms between frames
 
 @router.websocket("/ws/task")
 async def websocket_task(ws: WebSocket):
@@ -80,6 +83,8 @@ async def websocket_task(ws: WebSocket):
                                 await ws.send_json(data)
                                 frame_count += 1
                                 print(f"Forwarded frame {frame_count} to frontend")
+                                # Small delay to prevent message batching
+                                await asyncio.sleep(FRAME_SEND_DELAY)
                             elif data_type == 'detection_ready':
                                 # Detection result from spatial detection task
                                 # Add is_processed flag for frontend
@@ -87,6 +92,8 @@ async def websocket_task(ws: WebSocket):
                                 await ws.send_json(data)
                                 detection_count += 1
                                 print(f"Forwarded detection result {detection_count} to frontend")
+                                # Small delay to prevent message batching
+                                await asyncio.sleep(FRAME_SEND_DELAY)
                             else:
                                 # Forward other message types
                                 await ws.send_json(data)

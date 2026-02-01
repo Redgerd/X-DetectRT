@@ -7,14 +7,14 @@ class Settings:
     PROJECT_NAME = "X-Detect-RT"
 
     # Database settings
-    DATABASE_NAME = os.getenv("DATABASE_NAME", "X-Detect-RT")
+    DATABASE_NAME = os.getenv("DATABASE_NAME", "postgres-db")
     DATABASE_USER = os.getenv("DATABASE_USER", "postgres")
     DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD", "yourpassword")
-    DATABASE_HOST = os.getenv("DATABASE_HOST", "localhost")
+    DATABASE_HOST = os.getenv("DATABASE_HOST", "postgres-db")
     DATABASE_PORT = int(os.getenv("DATABASE_PORT", 5432)) 
     DATABASE_DOCKER_NAME = os.getenv("DATABASE_DOCKER_NAME", "postgres-db")
     DATABASE_URL = f"postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
-    DATABASE_DOCKER_URL = f"postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_DOCKER_NAME}/{DATABASE_NAME}"
+    DATABASE_DOCKER_URL = f"postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_DOCKER_NAME}:{DATABASE_PORT}/{DATABASE_NAME}"
 
     # Celery settings
     REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")

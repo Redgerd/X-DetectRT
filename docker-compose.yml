@@ -43,7 +43,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./uploads:/app/uploads 
-      - pip-cache:/root/.cache/pip
+      - ./pip_cache:/root/.cache/pip
     depends_on:
       - postgres-db
       - redis
@@ -63,7 +63,7 @@ services:
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
-      - pip-cache:/root/.cache/pip
+      - ./pip_cache:/root/.cache/pip
       - ./uploads:/app/uploads
     depends_on:
       - redis
@@ -93,7 +93,7 @@ services:
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
-      - pip-cache:/root/.cache/pip
+      - ./pip_cache:/root/.cache/pip
       - ./uploads:/app/uploads
     depends_on:
       - redis
@@ -126,7 +126,7 @@ services:
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend
-      - pip-cache:/root/.cache/pip
+      - ./pip_cache:/root/.cache/pip
       - ./uploads:/app/uploads
     ports:
       - "5555:5555"

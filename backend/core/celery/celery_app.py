@@ -42,6 +42,8 @@ celery_app.conf.update(
         'frame_selection_pipeline.run': {'queue': 'frame_selection_queue'},
         'backend.core.celery.detection_tasks.perform_detection': {'queue': 'deepfake_detection_queue'},
         'backend.core.celery.process_face.process_faces_task': {'queue': 'frame_selection_queue', 'routing_key': 'frame_selection'},
+        'backend.core.celery.spatialDetection.analyze_frames': {'queue': 'deepfake_detection_queue'},
+        'backend.core.celery.spatialDetection.run_chained_detection': {'queue': 'deepfake_detection_queue'},
     }
 )
 # Autodiscover tasks from specified modules
@@ -50,4 +52,5 @@ celery_app.autodiscover_tasks([
     "core.celery.process_face",
     "core.celery.detection_tasks",
     "core.celery.tasks",
+    "core.celery.spatialDetection",
 ], force=True)

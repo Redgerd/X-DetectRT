@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, Cookie, HTTPException, Header
 from fastapi.responses import JSONResponse
 import uuid
 from typing import Optional
-from datetime import datetime, timedelta
-import jwt
+from datetime import datetime
+from jose import jwt
+from jose.exceptions import JWTError
 from config import settings
 
 router = APIRouter(prefix="/video", tags=["Video Processing"])
@@ -41,7 +42,7 @@ async def get_current_user(token: Optional[str] = Cookie(None), authorization: O
             return None
             
         return {"user_id": user_id, "username": username, "role": role}
-    except jwt.PyJWTError:
+    except JWTError:
         return None
 
 @router.post("/start-task")

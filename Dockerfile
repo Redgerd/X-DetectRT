@@ -24,6 +24,7 @@ RUN chmod +x /wait-for-it.sh
 
 # Copy sample data (ensure ml_models is inside backend)
 COPY data/ /app/data
+COPY GenD_PE_L/ /app/GenD_PE_L
 
 EXPOSE 8000
 

@@ -1,23 +1,19 @@
 # backend/main.py
 
-# Imports
+# imports
 import asyncio
 import logging
-
 from fastapi import FastAPI,  WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-
 import redis.asyncio as redis
-
 from config import settings
 
 # Internal Imports
 from core.database import test_db_connection
 from core.celery.celery_app import celery_app
 from core.celery.frame_selection import extract_faces_with_optical_flow
+from services.detection.model import load_gend_model
 import os, uuid
-# Model loading is handled by Celery workers, not the main FastAPI app
-# confirm_model_loaded();
 
 # FastAPI App Setup
 app = FastAPI(
@@ -48,19 +44,37 @@ app.add_middleware(
 )
 
 # Startup and Shutdown Events
+# Startup and Shutdown Events
 @app.on_event("startup")
 async def startup_db_check():
-    if test_db_connection():
-        logger.info("✅ Database connected successfully.")
-    else:
-        logger.error("❌ Database connection failed on startup.")
+    # ------------------------------
+    # Database Check
+    # ------------------------------
+    # if test_db_connection():
+    #     logger.info("✅ Database connected successfully.")
+    # else:
+    #     logger.error("❌ Database connection failed on startup.")
 
+    # ------------------------------
+    # Redis Initialization
+    # ------------------------------
     global redis_client
     try:
         redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
-        logger.info("Redis client initialized.")
+        logger.info("✅ Redis client initialized.")
     except Exception as e:
         logger.error(f"❌ Redis connection failed: {e}", exc_info=True)
+
+    # ------------------------------
+    # Load GenD Model
+    # ------------------------------
+    try:
+        logger.info("🚀 Loading GenD model at startup...")
+        load_gend_model()
+        logger.info("✅ GenD model loaded successfully.")
+    except Exception as e:
+        logger.error(f"❌ Failed to load GenD model: {e}", exc_info=True)
+        raise e  # optional: crash app if model fails
 
 
 @app.on_event("shutdown")
@@ -77,14 +91,7 @@ from api.video.routes import router as video_router
 
 app.include_router(video_ws_router)
 app.include_router(video_router)
-
-# Routes
 app.include_router(auth_router)
-
-
-@app.get("/")
-async def root():
-    return {"message": "Hello World. This is X-DETECT project!"}
 
 
 @app.get("/health")

@@ -42,14 +42,13 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app/backend
-      - ./uploads:/app/uploads 
+      - ./uploads:/app/uploads
       - ./pip_cache:/root/.cache/pip
     depends_on:
       - postgres-db
       - redis
     networks:
       - backend
-    runtime: nvidia
 
   # Celery Frame Worker (reuses image)
   celery-frame-worker:
@@ -76,12 +75,15 @@ services:
       --loglevel=info
       --concurrency=2
     healthcheck:
-      test: ["CMD-SHELL", "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'"]
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
-    runtime: nvidia
 
   celery-detection-worker:
     image: my-fastapi-app:latest
@@ -101,7 +103,6 @@ services:
     networks:
       - backend
     command: celery -A ${CELERY_MODULE}.celery_app worker -Q deepfake_detection_queue --loglevel=info --concurrency=1
-    runtime: nvidia
     healthcheck:
       test:
         [
@@ -135,7 +136,6 @@ services:
       - redis
     networks:
       - backend
-    runtime: nvidia
 
 networks:
   backend:

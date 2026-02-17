@@ -7,14 +7,17 @@ from config import settings
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
-# use DATABASE_URL for local development and DATABASE_DOCKER_URL for if postgres is running in a docker container
-# DATABASE_URL = settings.DATABASE_URL
-try:
-    DATABASE_URL = settings.DATABASE_DOCKER_URL
-    engine = create_engine(DATABASE_URL)
-except Exception as e:
-    DATABASE_URL = settings.DATABASE_URL
-    engine = create_engine(DATABASE_URL)
+DATABASE_URL = settings.DATABASE_URL
+
+logger.info(f"DATABASE_NAME: {settings.DATABASE_NAME}")
+logger.info(f"DATABASE_USER: {settings.DATABASE_USER}")
+logger.info(f"DATABASE_PASSWORD: {settings.DATABASE_PASSWORD}")
+logger.info(f"DATABASE_HOST: {settings.DATABASE_HOST}")
+logger.info(f"DATABASE_PORT: {settings.DATABASE_PORT}")
+logger.info(f"DATABASE_DOCKER_NAME: {settings.DATABASE_DOCKER_NAME}")
+logger.info(f"Using DATABASE_URL: {DATABASE_URL}")
+
+engine = create_engine(DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

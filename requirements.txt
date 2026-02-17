@@ -24,3 +24,5 @@ pillow
 opencv-python-headless
 numpy
 requests
+transformers==4.56.2
+timm

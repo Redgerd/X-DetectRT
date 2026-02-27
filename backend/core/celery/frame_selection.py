@@ -17,6 +17,8 @@ from PIL import Image     # For resizing and image conversion
 from tensorflow.keras.applications.inception_v3 import preprocess_input
 import os
 from .spatialDetection import run_chained_detection
+# Import the GenD detection task from detection_tasks
+from .detection_tasks import run_gend_pipeline
 
 # Import the deepfake detection task from its new module
 # Ensure this import path is correct based on your project structure
@@ -164,14 +166,15 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, vid
 
     redis_client.set(f"task_result:{task_id}", json.dumps(result))
     
-    # Trigger spatial detection as a chained task
+    # Trigger GenD detection as a chained task (instead of spatial detection)
     try:
-        detection_task = run_chained_detection.delay(task_id, result)
+        # Use run_gend_pipeline instead of run_chained_detection for GenD-based detection
+        detection_task = run_gend_pipeline.delay(task_id, result)
         result["detection_task_id"] = detection_task.id
-        result["message"] = "Frame extraction complete. Spatial detection started."
-        logger.info(f"Spatial detection task dispatched: {detection_task.id}")
+        result["message"] = "Frame extraction complete. GenD deepfake detection started."
+        logger.info(f"GenD detection task dispatched: {detection_task.id}")
     except Exception as chain_err:
-        logger.warning(f"Failed to chain spatial detection task: {chain_err}")
+        logger.warning(f"Failed to chain GenD detection task: {chain_err}")
     
     return result
 

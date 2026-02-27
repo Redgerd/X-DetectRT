@@ -4,6 +4,7 @@
 env/
 
 backend/ml_models/
+GenD_PE_L/
 
 # python specific
 __pycache__

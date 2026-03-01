@@ -253,5 +253,16 @@ def run_gend_pipeline(self, task_id: str, frame_results: dict) -> dict:
     
     logger.info(f"[GenD Pipeline] Completed: {anomaly_count}/{total_frames} anomalies detected")
     
+    # -----------------------------------------------------------------------
+    # Trigger XAI generation asynchronously for all frames
+    # -----------------------------------------------------------------------
+    try:
+        from core.celery.explainable_ai import run_explainable_ai
+        run_explainable_ai.delay(task_id, final_result)
+        logger.info(f"[GenD Pipeline] XAI task dispatched for task_id={task_id}")
+    except Exception as xai_err:
+        logger.warning(f"[GenD Pipeline] Failed to dispatch XAI task: {xai_err}")
+
     return final_result
+
 

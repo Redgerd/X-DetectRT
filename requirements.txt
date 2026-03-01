@@ -26,3 +26,5 @@ numpy
 requests
 transformers==5.2.0
 timm
+lime
+scikit-image

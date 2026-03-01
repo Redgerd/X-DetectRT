@@ -128,3 +128,56 @@ async def health():
     return health_status
 
 
+# ------------------------------
+# Test
+# ------------------------------
+# backend/core/api.py
+import base64
+from fastapi import FastAPI, UploadFile, File
+from PIL import Image
+import io
+import numpy as np
+import cv2
+from services.detection.model import run_gend_inference as gend_model_inference
+from core.celery.detection_tasks import base64_to_image
+
+@app.post("/gend-inference/")
+async def gend_inference_api(task_id: str, file: UploadFile = File(...)):
+    """
+    API endpoint to run GenD inference on a single uploaded image.
+    Inputs:
+        - task_id: str
+        - file: image file
+    Returns:
+        - JSON with inference result
+    """
+    # Read image bytes
+    img_bytes = await file.read()
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+
+    # Convert PIL to base64 (optional, just for returning the image)
+    img_np = np.array(img)
+    _, buffer = cv2.imencode(".jpg", cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR))
+    img_b64 = base64.b64encode(buffer).decode("utf-8")
+
+    # Call the actual GenD model inference
+    result = gend_model_inference(task_id, img)
+
+    # Prepare response
+    real_prob = result.get("real_prob", 0.5)
+    fake_prob = result.get("fake_prob", 0.5)
+    is_anomaly = fake_prob > 0.5
+    confidence = fake_prob * 100 if is_anomaly else real_prob * 100
+
+    detection_result = {
+        "frame_index": 0,
+        "is_anomaly": is_anomaly,
+        "confidence": round(confidence, 2),
+        "real_prob": round(real_prob, 4),
+        "fake_prob": round(fake_prob, 4),
+        "anomaly_type": "GenD Deepfake" if is_anomaly else None,
+        "original_frame_data": img_b64,
+        "task_id": task_id
+    }
+
+    return detection_result

@@ -4,7 +4,7 @@ from celery.signals import worker_process_init
 from config import settings
 import os
 import logging
-from kombu import Queue # <--- ADD THIS IMPORT
+from kombu import Queue 
 
 logger = logging.getLogger(__name__)
 # ... (rest of logger setup) ...

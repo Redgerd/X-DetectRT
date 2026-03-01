@@ -4,7 +4,7 @@ from celery.signals import worker_process_init
 from config import settings
 import os
 import logging
-from kombu import Queue # <--- ADD THIS IMPORT
+from kombu import Queue 
 
 logger = logging.getLogger(__name__)
 # ... (rest of logger setup) ...
@@ -41,6 +41,8 @@ celery_app.conf.update(
     task_routes = {
         'frame_selection_pipeline.run': {'queue': 'frame_selection_queue'},
         'backend.core.celery.detection_tasks.perform_detection': {'queue': 'deepfake_detection_queue'},
+        'backend.core.celery.detection_tasks.run_gend_inference': {'queue': 'deepfake_detection_queue'},
+        'backend.core.celery.detection_tasks.run_gend_pipeline': {'queue': 'deepfake_detection_queue'},
         'backend.core.celery.spatialDetection.analyze_frames': {'queue': 'deepfake_detection_queue'},
         'backend.core.celery.spatialDetection.run_chained_detection': {'queue': 'deepfake_detection_queue'},
         'backend.core.celery.explainable_ai.run_explainable_ai': {'queue': 'deepfake_detection_queue'},

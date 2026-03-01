@@ -1,3 +1,5 @@
+# backend\core\celery\detection_tasks.py
+
 import os
 import logging
 import base64
@@ -53,14 +55,17 @@ def run_gend_inference(self, task_id: str, frame_data: str, frame_index: int = 0
     """
     logger.info(f"[GenD Inference] Starting inference for task_id: {task_id}, frame_index: {frame_index}")
     try:
+        # Convert base64 to OpenCV image
         frame = base64_to_image(frame_data)
         if frame is None:
             raise ValueError("Failed to decode frame data")
         
+        # Convert to PIL image
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(frame_rgb)
-        
-        result = gend_inference(task_id, pil_image)
+
+        # --- Run the actual model inference ---
+        result = run_gend_inference(task_id, pil_image)  # call the real inference function
         real_prob = result.get("real_prob", 0.5)
         fake_prob = result.get("fake_prob", 0.5)
         is_anomaly = fake_prob > 0.5
@@ -188,4 +193,3 @@ def run_gend_pipeline(self, task_id: str, frame_results: dict) -> dict:
 
     logger.info(f"[GenD Pipeline] Completed: {anomaly_count}/{total_frames} anomalies detected")
     return final_result
-

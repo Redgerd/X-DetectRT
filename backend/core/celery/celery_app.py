@@ -32,6 +32,7 @@ celery_app.conf.update(
         Queue('frame_selection_queue', routing_key='frame_selection'),
         Queue('deepfake_detection_queue', routing_key='deepfake_detection'),
         Queue('websocket_messages_queue', routing_key='websocket_messages'),
+        Queue('audio_detection_queue', routing_key='audio_detection'),
     ),
     task_default_queue = 'default',
     task_default_exchange = 'tasks',
@@ -46,6 +47,9 @@ celery_app.conf.update(
         'backend.core.celery.spatialDetection.run_chained_detection': {'queue': 'deepfake_detection_queue'},
         'backend.core.celery.explainable_ai.run_explainable_ai': {'queue': 'deepfake_detection_queue'},
         'backend.core.celery.llm.run_llm': {'queue': 'deepfake_detection_queue'},
+        # Audio pipeline
+        'audio_detection.run_audio_pipeline': {'queue': 'audio_detection_queue'},
+        'audio_xai.run_audio_xai':            {'queue': 'audio_detection_queue'},
     }
 )
 # Autodiscover tasks from specified modules
@@ -56,5 +60,8 @@ celery_app.autodiscover_tasks([
     "core.celery.tasks",
     "core.celery.spatialDetection",
     "core.celery.explainable_ai",
-    "core.celery.llm"
+    "core.celery.llm",
+    # Audio pipeline
+    "core.celery.audio_detection_tasks",
+    "core.celery.audio_xai",
 ], force=True)

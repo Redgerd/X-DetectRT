@@ -86,6 +86,18 @@ async def startup_db_check():
         logger.error(f"❌ Failed to initialize XAI model: {e}", exc_info=True)
         raise e  # Optional: crash app if XAI fails
 
+    # ------------------------------
+    # Load Audio / WavLM Models
+    # ------------------------------
+    try:
+        from services.audio.model import load_audio_models
+        logger.info("🎙️  Loading WavLM + DeepFakeDetector audio models at startup...")
+        load_audio_models()
+        logger.info("✅ Audio models loaded successfully.")
+    except Exception as e:
+        # Audio model failure is non-fatal — app continues without audio detection
+        logger.error(f"❌ Failed to load audio models: {e}", exc_info=True)
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -98,10 +110,14 @@ async def shutdown_event():
 from api.auth.routes import router as auth_router
 from api.video.websocket import router as video_ws_router
 from api.video.routes import router as video_router
+from api.audio.routes import router as audio_router
+from api.audio.websocket import router as audio_ws_router
 
 app.include_router(video_ws_router)
 app.include_router(video_router)
 app.include_router(auth_router)
+app.include_router(audio_router)
+app.include_router(audio_ws_router)
 
 
 @app.get("/health")

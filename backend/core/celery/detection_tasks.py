@@ -17,7 +17,7 @@ from config import settings
 import cv2
 
 # Import the GenD inference function
-from services.detection.model import run_gend_inference
+from services.detection.model import run_gend_inference as gend_model_inference
 
 # Redis client
 redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
@@ -131,7 +131,7 @@ def run_gend_pipeline(self, task_id: str, frame_results: dict) -> dict:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(frame_rgb)
             
-            result = gend_inference(task_id, pil_image)
+            result = gend_model_inference(task_id, pil_image)
             real_prob = result.get("real_prob", 0.5)
             fake_prob = result.get("fake_prob", 0.5)
             is_anomaly = fake_prob > 0.5

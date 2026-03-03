@@ -1,4 +1,5 @@
 # backend/core/celery/celery_app.py
+s
 from celery import Celery, current_app
 from celery.signals import worker_process_init
 from config import settings
@@ -7,7 +8,6 @@ import logging
 from kombu import Queue 
 
 logger = logging.getLogger(__name__)
-# ... (rest of logger setup) ...
 
 celery_app = Celery(
     "deepfake_detector",
@@ -27,7 +27,6 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_acks_late=True,
 
-    # --- FIX: Define Queues as kombu.Queue objects ---
     task_queues = (
         Queue('default', routing_key='default'),
         Queue('frame_selection_queue', routing_key='frame_selection'),

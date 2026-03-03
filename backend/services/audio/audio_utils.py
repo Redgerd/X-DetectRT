@@ -1,7 +1,7 @@
 # backend/services/audio/audio_utils.py
+
 """
 Audio preprocessing utilities for the READ pipeline.
-
 - Resamples to 16 kHz (required by WavLM Base+)
 - Pads / trims to exactly 64,600 samples (~4 seconds)
 - Generates a base64 waveform PNG for frontend display

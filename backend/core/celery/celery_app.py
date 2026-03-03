@@ -1,5 +1,5 @@
 # backend/core/celery/celery_app.py
-s
+
 from celery import Celery, current_app
 from celery.signals import worker_process_init
 from config import settings

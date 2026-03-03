@@ -11,10 +11,8 @@ from config import settings
 # Internal Imports
 from core.database import test_db_connection
 from core.celery.celery_app import celery_app
-from core.celery.frame_selection import extract_faces_with_optical_flow
 from services.detection.model import load_gend_model
 from services.explaination.xai_methods import init_xai_model
-import os, uuid
 
 # FastAPI App Setup
 app = FastAPI(
@@ -89,14 +87,14 @@ async def startup_db_check():
     # ------------------------------
     # Load Audio / WavLM Models
     # ------------------------------
-    try:
-        from services.audio.model import load_audio_models
-        logger.info("🎙️  Loading WavLM + DeepFakeDetector audio models at startup...")
-        load_audio_models()
-        logger.info("✅ Audio models loaded successfully.")
-    except Exception as e:
-        # Audio model failure is non-fatal — app continues without audio detection
-        logger.error(f"❌ Failed to load audio models: {e}", exc_info=True)
+    # try:
+    #     from services.audio.model import load_audio_models
+    #     logger.info("🎙️  Loading WavLM + DeepFakeDetector audio models at startup...")
+    #     load_audio_models()
+    #     logger.info("✅ Audio models loaded successfully.")
+    # except Exception as e:
+    #     # Audio model failure is non-fatal — app continues without audio detection
+    #     logger.error(f"❌ Failed to load audio models: {e}", exc_info=True)
 
 
 @app.on_event("shutdown")

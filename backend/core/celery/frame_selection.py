@@ -18,7 +18,7 @@ from tensorflow.keras.applications.inception_v3 import preprocess_input
 import os
 from .spatialDetection import run_chained_detection
 # Import the GenD detection task from detection_tasks
-from .detection_tasks import run_gend_pipeline
+from .detection_tasks import run_gend_inference
 
 # Import the deepfake detection task from its new module
 # Ensure this import path is correct based on your project structure
@@ -123,21 +123,38 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, vid
             # Get actual frame position from video for accurate timestamp
             current_frame_pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
             timestamp_sec = current_frame_pos / fps if fps > 0 else frame_count / fps
+            timestamp_str = seconds_to_hhmmss(timestamp_sec)
 
             if success:
+                frame_data_b64 = base64.b64encode(buffer).decode("utf-8")
+                
+                # Publish frame to Redis for real-time streaming to frontend
                 redis_client.publish(
                     f"task_frames:{task_id}",
                     json.dumps({
                         "type": "frame_ready",
                         "frame_index": frame_count,
-                        "frame_data": base64.b64encode(buffer).decode("utf-8"),
-                        "timestamp": seconds_to_hhmmss(timestamp_sec),
+                        "frame_data": frame_data_b64,
+                        "timestamp": timestamp_str,
                         "timestamp_seconds": round(timestamp_sec, 3),
                         "fps": round(fps, 2),
                         "video_duration": round(total_duration, 2),
                         "task_id": task_id
                     })
                 )
+                
+                # Trigger GenD inference immediately for this frame (one by one)
+                try:
+                    gend_task = run_gend_inference.delay(
+                        task_id=task_id,
+                        frame_data=frame_data_b64,
+                        frame_index=frame_count,
+                        timestamp=timestamp_str
+                    )
+                    logger.info(f"GenD inference dispatched for frame {frame_count}, task_id: {gend_task.id}")
+                except Exception as gend_err:
+                    logger.warning(f"Failed to dispatch GenD inference for frame {frame_count}: {gend_err}")
+                    
         except Exception as e:
             print("[REDIS ERROR]", e)
 
@@ -146,15 +163,13 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, vid
     cap.release()
 
     # ---------------- Final result ----------------
+    # Send ALL frames to GenD pipeline for detection (not just 3 preview frames)
     preview_frames = []
-    for i in range(min(3, len(processed_faces))):
+    for i in range(len(processed_faces)):
         img = (processed_faces[i] * 255).astype(np.uint8)
         img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         _, buffer = cv2.imencode(".jpg", img_bgr)
         preview_frames.append(base64.b64encode(buffer).decode("utf-8"))
-
-    while len(preview_frames) < 3:
-        preview_frames.append("")
 
     result = {
         "message": "Optical flow → face extraction → preprocessing complete",
@@ -166,15 +181,10 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, vid
 
     redis_client.set(f"task_result:{task_id}", json.dumps(result))
     
-    # Trigger GenD detection as a chained task (instead of spatial detection)
-    try:
-        # Use run_gend_pipeline instead of run_chained_detection for GenD-based detection
-        detection_task = run_gend_pipeline.delay(task_id, result)
-        result["detection_task_id"] = detection_task.id
-        result["message"] = "Frame extraction complete. GenD deepfake detection started."
-        logger.info(f"GenD detection task dispatched: {detection_task.id}")
-    except Exception as chain_err:
-        logger.warning(f"Failed to chain GenD detection task: {chain_err}")
+    # Frames are now processed one by one via run_gend_inference as they are extracted
+    # No need to trigger batch pipeline at the end
+    result["message"] = "Frame extraction complete. GenD deepfake detection running on each frame."
+    logger.info(f"Frame extraction complete for task_id: {task_id}, total frames: {frame_count}")
     
     return result
 

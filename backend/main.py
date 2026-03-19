@@ -68,13 +68,13 @@ async def startup_db_check():
     # ------------------------------
     # Load GenD Model
     # ------------------------------
-    # try:
-    #     logger.info("🚀 Loading GenD model at startup...")
-    #     load_gend_model()
-    #     logger.info("✅ GenD model loaded successfully.")
-    # except Exception as e:
-    #     logger.error(f"❌ Failed to load GenD model: {e}", exc_info=True)
-    #     raise e  # optional: crash app if model fails
+    try:
+        logger.info("🚀 Loading GenD model at startup...")
+        load_gend_model()
+        logger.info("✅ GenD model loaded successfully.")
+    except Exception as e:
+        logger.error(f"❌ Failed to load GenD model: {e}", exc_info=True)
+        raise e  # optional: crash app if model fails
 
 
 @app.on_event("shutdown")

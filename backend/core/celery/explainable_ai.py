@@ -24,7 +24,10 @@ from .celery_app import celery_app
 
 # Import GenD model loader and XAI helpers
 from services.detection.model import load_gend_model, _GEND_DEVICE
-from services.detection.xai_methods import generate_gradcam, generate_lime
+from services.explaination.xai_methods import generate_gradcam, generate_lime
+
+# Spatial Analysis
+from core.celery.spatialDetection import analyze_spatial_detection
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +54,7 @@ def _base64_to_pil(base64_str: str) -> Image.Image:
 # ---------------------------------------------------------------------------
 
 @celery_app.task(
-    name="explainable_ai.run_explainable_ai",
+    name="backend.core.celery.explainable_ai.run_explainable_ai",
     bind=True,
     max_retries=2,
     soft_time_limit=120,
@@ -188,8 +191,36 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
             logger.warning(f"[XAI] Failed to store final XAI result in Redis: {e}")
 
         logger.info(f"[XAI] Completed: {len(xai_results)} frames explained for task_id={task_id}")
-        return final_result
 
+        # Dispatch spatial detection after XAI completes
+        try:
+            from core.celery.spatialDetection import analyze_spatial_detection
+
+            # Build frames_data list from xai_results — reuse the same frames
+            frames_data = [
+                {
+                    "frame_index": r["frame_index"],
+                    "frame_data": next(
+                        (f["frame_data"] for f in detection_results if f["frame_index"] == r["frame_index"]),
+                        ""
+                    ),
+                    "timestamp": r["timestamp"],
+                    "timestamp_seconds": r["frame_index"] / 30.0,
+                }
+                for r in xai_results
+            ]
+
+            if frames_data:
+                analyze_spatial_detection.delay(frames_data, task_id)
+                logger.info(f"[XAI] Spatial detection dispatched for task_id={task_id}, frames={len(frames_data)}")
+            else:
+                logger.warning(f"[XAI] No frames to dispatch for spatial detection")
+
+        except Exception as spatial_err:
+            logger.warning(f"[XAI] Failed to dispatch spatial detection: {spatial_err}")
+
+        return final_result
+    
     except SoftTimeLimitExceeded:
         logger.error(f"[XAI] Task timed out for task_id={task_id}")
         raise

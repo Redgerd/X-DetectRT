@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Cookie, HTTPException, Header, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Cookie, HTTPException, Header, UploadFile, File, Form, Query
 from fastapi.responses import JSONResponse
 import uuid
 import base64
@@ -6,7 +6,7 @@ from typing import Optional
 from datetime import datetime
 from jose import jwt
 from jose.exceptions import JWTError
-from config import settings
+from config import settings, XAI_CONFIG
 
 # Import the Celery task for GenD inference
 from core.celery.detection_tasks import run_gend_inference
@@ -76,21 +76,31 @@ async def test_gend_inference(
     task_id: str = Form(..., description="Task ID for tracking"),
     frame_index: int = Form(0, description="Frame index in the video"),
     timestamp: str = Form("", description="Frame timestamp"),
+    explain: bool = Query(False, description="Run XAI pipeline and return explanations"),
     current_user = Depends(get_current_user)
 ):
     """
     Test endpoint for GenD deepfake detection on a single image.
-    Takes an image file and task_id, returns detection results.
     
     Args:
-        image: Image file (JPEG, PNG, etc.)
-        task_id: Task ID for tracking the request
+        image      : Image file (JPEG, PNG, etc.)
+        task_id    : Task ID for tracking
         frame_index: Optional frame index
-        timestamp: Optional timestamp
-    
+        timestamp  : Optional timestamp
+        explain    : When True, run all XAI techniques and return results
+                     alongside the main prediction.
+
     Returns:
-        JSON with detection results (real_prob, fake_prob, is_anomaly, confidence)
+        JSON with detection results and (when explain=True) a list of XAI
+        technique results: { technique, scores, figure_base64 }
     """
+    import logging
+    import numpy as np
+    import cv2
+    from PIL import Image as PILImage
+
+    logger = logging.getLogger(__name__)
+
     # Validate task_id
     if not task_id:
         task_id = str(uuid.uuid4())
@@ -103,23 +113,80 @@ async def test_gend_inference(
         # Determine MIME type
         content_type = image.content_type
         if content_type:
-            image_base64 = f"data:{content_type};base64,{image_base64}"
-        
-        # Dispatch the Celery task
-        task = run_gend_inference.delay(
-            task_id=task_id,
-            frame_data=image_base64,
-            frame_index=frame_index,
-            timestamp=timestamp
-        )
-        
-        return JSONResponse({
-            "message": "GenD inference task dispatched",
-            "task_id": task_id,
-            "celery_task_id": task.id,
-            "frame_index": frame_index,
-            "timestamp": timestamp
-        })
+            image_base64_with_prefix = f"data:{content_type};base64,{image_base64}"
+        else:
+            image_base64_with_prefix = image_base64
+
+        if explain:
+            # ----------------------------------------------------------------
+            # Synchronous path: run inference + XAI inline (for direct API use)
+            # ----------------------------------------------------------------
+            import torch
+            import torch.nn.functional as F
+            from services.detection.model import load_gend_model, _GEND_DEVICE
+            from xai.pipeline import run_xai_pipeline
+
+            # Decode image to PIL
+            nparr = np.frombuffer(image_content, np.uint8)
+            frame_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            pil_image = PILImage.fromarray(frame_rgb)
+
+            model = load_gend_model()
+            device = _GEND_DEVICE or "cpu"
+
+            # Run main inference
+            tensor = model.feature_extractor.preprocess(pil_image).unsqueeze(0).to(device)
+            with torch.no_grad():
+                logits = model(tensor)
+                probs = F.softmax(logits, dim=-1)
+            real_prob = probs[0, 0].item()
+            fake_prob = probs[0, 1].item()
+            is_anomaly = fake_prob > 0.5
+
+            # Run XAI pipeline
+            try:
+                xai_results = run_xai_pipeline(
+                    model=model,
+                    pil_image=pil_image,
+                    device=device,
+                    frame_probs=[fake_prob],   # single-frame time series for SHAP
+                    config=XAI_CONFIG,
+                )
+            except Exception as xai_err:
+                logger.error(f"[XAI] Pipeline error: {xai_err}", exc_info=True)
+                xai_results = [{"technique": "pipeline", "error": str(xai_err), "figure_base64": None}]
+
+            return JSONResponse({
+                "task_id": task_id,
+                "frame_index": frame_index,
+                "timestamp": timestamp,
+                "is_anomaly": is_anomaly,
+                "real_prob": round(real_prob, 4),
+                "fake_prob": round(fake_prob, 4),
+                "confidence": round(fake_prob * 100 if is_anomaly else real_prob * 100, 2),
+                "anomaly_type": "GenD Deepfake" if is_anomaly else None,
+                "xai_results": xai_results,
+            })
+        else:
+            # ----------------------------------------------------------------
+            # Async path: dispatch Celery task (original behaviour)
+            # ----------------------------------------------------------------
+            task = run_gend_inference.delay(
+                task_id=task_id,
+                frame_data=image_base64_with_prefix,
+                frame_index=frame_index,
+                timestamp=timestamp
+            )
+            
+            return JSONResponse({
+                "message": "GenD inference task dispatched",
+                "task_id": task_id,
+                "celery_task_id": task.id,
+                "frame_index": frame_index,
+                "timestamp": timestamp
+            })
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
+

@@ -38,12 +38,18 @@ services:
     environment:
       REDIS_URL: ${REDIS_URL}
       WATCHFILES_FORCE_POLLING: "true"
+      SAM_CHECKPOINT: /app/checkpoints/sam_vit_h_4b8939.pth
+      SAM_MODEL_TYPE: vit_h
+      PROTOTYPE_DB_PATH: /app/data/known_fakes_embeddings.npy
+      PYTHONPATH: /app/backend
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app/backend
       - ./uploads:/app/uploads
       - ./pip_cache:/root/.cache/pip
+      - ./checkpoints:/app/checkpoints
+    mem_limit: 8g
     depends_on:
       - postgres-db
       - redis
@@ -60,10 +66,14 @@ services:
       - CELERY_MODULE=${CELERY_MODULE}
       - REDIS_URL=${REDIS_URL}
       - PYTHONPATH=/app/backend
+      - SAM_CHECKPOINT=/app/checkpoints/sam_vit_h_4b8939.pth
+      - SAM_MODEL_TYPE=vit_h
+      - PROTOTYPE_DB_PATH=/app/data/known_fakes_embeddings.npy
     volumes:
       - ./backend:/app/backend
       - ./pip_cache:/root/.cache/pip
       - ./uploads:/app/uploads
+      - ./checkpoints:/app/checkpoints
     depends_on:
       - redis
       - postgres-db
@@ -93,10 +103,15 @@ services:
       - CELERY_MODULE=${CELERY_MODULE}
       - REDIS_URL=${REDIS_URL}
       - PYTHONPATH=/app/backend
+      - SAM_CHECKPOINT=/app/checkpoints/sam_vit_h_4b8939.pth
+      - SAM_MODEL_TYPE=vit_h
+      - PROTOTYPE_DB_PATH=/app/data/known_fakes_embeddings.npy
     volumes:
       - ./backend:/app/backend
       - ./pip_cache:/root/.cache/pip
       - ./uploads:/app/uploads
+      - ./checkpoints:/app/checkpoints
+    mem_limit: 8g
     depends_on:
       - redis
       - postgres-db
@@ -144,3 +159,4 @@ networks:
 volumes:
   postgres_data:
   pip-cache:
+  checkpoints:

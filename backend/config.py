@@ -1,7 +1,27 @@
 import os
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+# ---------------------------------------------------------------------------
+# XAI Config — load from xai_config.yaml (adjacent to this file)
+# ---------------------------------------------------------------------------
+_XAI_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "xai_config.yaml")
+
+def _load_xai_config() -> dict:
+    try:
+        with open(_XAI_CONFIG_PATH, "r") as f:
+            raw = yaml.safe_load(f) or {}
+        return raw.get("xai", {})
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to load xai_config.yaml: {e}")
+        return {}
+
+XAI_CONFIG: dict = _load_xai_config()
 
 class Settings:
     PROJECT_NAME = "X-Detect-RT"

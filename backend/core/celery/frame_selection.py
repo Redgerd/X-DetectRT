@@ -6,7 +6,6 @@ import json # Potentially useful for logging or debugging JSON data
 import time # For time.sleep
 import logging # For logging
 from datetime import datetime # For timestamp
-import io
 
 import redis # Import synchronous redis client for Celery tasks
 
@@ -45,111 +44,13 @@ PADDING = 20
 FLOW_THRESHOLD = 1.2
 
 @shared_task(name="frame_selection_pipeline.run")
-def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, video_duration=None, is_image=False):
+def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, video_duration=None):
 
     try:
 
         if not task_id:
-            task_id = os.path.basename(video_path).replace(".mp4", "").replace(".jpg", "").replace(".png", "")
+            task_id = os.path.basename(video_path).replace(".mp4", "")
 
-        # Handle image processing
-        if is_image:
-            logger.info(f"[{task_id}] Processing image: {video_path}")
-            
-            if not os.path.exists(video_path):
-                return {"error": "Image not found", "task_id": task_id}
-            
-            # Read image bytes
-            with open(video_path, 'rb') as f:
-                img_bytes = f.read()
-            
-            # Open with PIL and convert to RGB
-            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            img_np = np.array(img)
-            
-            # Convert PIL RGB to OpenCV BGR
-            frame_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-            frame_rgb = img_np  # Already in RGB format from PIL
-            
-            # Face detection on the entire image
-            detector = MTCNN()
-            detections = detector.detect_faces(frame_rgb)
-            
-            face_for_model = None
-            
-            if detections:
-                # Get the first (largest) face
-                x, y, w, h = detections[0]["box"]
-                x = max(0, x)
-                y = max(0, y)
-                w = max(1, w)
-                h = max(1, h)
-                
-                face_candidate = frame_rgb[y:y+h, x:x+w]
-                
-                if face_candidate is not None and face_candidate.size > 0:
-                    face_for_model = face_candidate
-            
-            if face_for_model is None:
-                # No face detected, use the whole image
-                logger.warning(f"[{task_id}] No face detected, using full image")
-                face_for_model = frame_rgb
-            
-            # ---------- preprocess ----------
-            face_img = Image.fromarray(face_for_model).resize((WIDTH, HEIGHT))
-            face_arr = preprocess_input(np.array(face_img))
-            
-            # ---------- encode ----------
-            frame_bgr = cv2.cvtColor(face_for_model, cv2.COLOR_RGB2BGR)
-            success, buffer = cv2.imencode(".jpg", frame_bgr)
-            
-            if success:
-                frame_data_b64 = base64.b64encode(buffer).decode("utf-8")
-                timestamp_str = "00:00:00.000"
-                
-                # ---------- redis stream ----------
-                redis_client.publish(
-                    f"task_frames:{task_id}",
-                    json.dumps({
-                        "type": "frame_ready",
-                        "frame_index": 0,
-                        "frame_data": frame_data_b64,
-                        "timestamp": timestamp_str,
-                        "timestamp_seconds": 0,
-                        "fps": 0,
-                        "video_duration": 0,
-                        "task_id": task_id,
-                        "is_image": True
-                    })
-                )
-                
-                # ---------- GenD ----------
-                run_gend_inference.delay(
-                    task_id=task_id,
-                    frame_data=frame_data_b64,
-                    frame_index=0,
-                    timestamp=timestamp_str
-                )
-            
-            result = {
-                "message": "Image processed successfully",
-                "task_id": task_id,
-                "video_path": video_path,
-                "faces_detected_frames": 1,
-                "frames_skipped": 0,
-                "is_image": True
-            }
-            
-            redis_client.set(
-                f"task_result:{task_id}",
-                json.dumps(result)
-            )
-            
-            logger.info(f"[{task_id}] Image processing completed")
-            
-            return result
-        
-        # Original video processing logic follows
         if not os.path.exists(video_path):
             return {"error": "Video not found", "task_id": task_id}
 

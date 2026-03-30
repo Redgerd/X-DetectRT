@@ -28,3 +28,12 @@ transformers==5.2.0
 timm
 lime
 scikit-image
+# ── Audio deepfake detection (READ module) ──────────────────────────────────
+# NOTE: torch / torchaudio are installed by the Dockerfile with --index-url
+#       https://download.pytorch.org/whl/cu118 to ensure the CUDA variant.
+#       Adding them here without that flag would pull CPU-only wheels.
+librosa
+soundfile
+captum
+shap
+matplotlib

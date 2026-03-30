@@ -39,152 +39,224 @@ def seconds_to_hhmmss(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
 
 
+MIN_CROP_SIZE = 40
+PADDING = 20
+FLOW_THRESHOLD = 1.2
+
 @shared_task(name="frame_selection_pipeline.run")
 def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, video_duration=None):
 
-    if not task_id:
-        task_id = os.path.basename(video_path).replace(".mp4", "")
+    try:
 
-    if not os.path.exists(video_path):
-        return {"error": "Video not found", "task_id": task_id}
+        if not task_id:
+            task_id = os.path.basename(video_path).replace(".mp4", "")
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return {"error": "Failed to open video", "task_id": task_id}
+        if not os.path.exists(video_path):
+            return {"error": "Video not found", "task_id": task_id}
 
-    # Get actual FPS and duration from video
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps == 0 or fps is None:
-        fps = 30.0  # Fallback to 30 FPS if not detected
-    
-    # Get video duration in seconds
-    total_duration = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0  # Current position
-    frame_count_total = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-    if frame_count_total > 0 and fps > 0:
-        total_duration = frame_count_total / fps
-    elif video_duration:
-        total_duration = video_duration
-    
-    logger.info(f"Video FPS: {fps}, Total Duration: {total_duration:.2f}s, Total Frames: {frame_count_total}")
-    
-    detector = MTCNN()
-    prev_gray = None
-    processed_faces = []
-    frame_count = 0
+        cap = cv2.VideoCapture(video_path)
 
-    while frame_count < max_frames:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        if not cap.isOpened():
+            return {"error": "Failed to open video", "task_id": task_id}
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps is None or fps <= 0 or np.isnan(fps):
+            fps = 30.0
 
-        face_for_model = None
+        frame_count_total = cap.get(cv2.CAP_PROP_FRAME_COUNT)
 
-        if prev_gray is not None:
-            # ---------------- Optical Flow ----------------
-            flow = cv2.calcOpticalFlowFarneback(
-                prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0
-            )
-            mag, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
-            motion_mask = mag > 1.2
+        if frame_count_total > 0:
+            total_duration = frame_count_total / fps
+        else:
+            total_duration = video_duration if video_duration else 0
 
-            if motion_mask.sum() > 0:
-                ys, xs = np.where(motion_mask)
-                x1, x2 = xs.min(), xs.max()
-                y1, y2 = ys.min(), ys.max()
-                motion_crop = frame_rgb[y1:y2, x1:x2]
+        logger.info(f"[{task_id}] FPS={fps:.2f}, total_frames={frame_count_total}")
 
-                # ---------------- MTCNN ----------------
-                detections = detector.detect_faces(motion_crop)
-                if detections:
-                    x, y, w, h = detections[0]["box"]
-                    x, y = max(0, x), max(0, y)
-                    face_for_model = motion_crop[y:y+h, x:x+w]
-                else:
-                    face_for_model = motion_crop
+        detector = MTCNN()
 
-        prev_gray = gray
+        prev_gray = None
+        processed_faces = []
 
-        if face_for_model is None:
-            face_for_model = frame_rgb
+        processed_count = 0
+        skipped_count = 0
+        frame_index = 0
 
-        # ---------------- Preprocess ----------------
-        face_img = Image.fromarray(face_for_model).resize((WIDTH, HEIGHT))
-        face_arr = preprocess_input(np.array(face_img))
-        processed_faces.append(face_arr)
+        while processed_count < max_frames:
 
-        # ---------------- Redis streaming ----------------
-        try:
-            frame_bgr = cv2.cvtColor(face_for_model, cv2.COLOR_RGB2BGR)
-            success, buffer = cv2.imencode(".jpg", frame_bgr)
-            
-            # Get actual frame position from video for accurate timestamp
-            current_frame_pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
-            timestamp_sec = current_frame_pos / fps if fps > 0 else frame_count / fps
-            timestamp_str = seconds_to_hhmmss(timestamp_sec)
+            ret, frame = cap.read()
 
-            if success:
-                frame_data_b64 = base64.b64encode(buffer).decode("utf-8")
-                
-                # Publish frame to Redis for real-time streaming to frontend
-                redis_client.publish(
-                    f"task_frames:{task_id}",
-                    json.dumps({
-                        "type": "frame_ready",
-                        "frame_index": frame_count,
-                        "frame_data": frame_data_b64,
-                        "timestamp": timestamp_str,
-                        "timestamp_seconds": round(timestamp_sec, 3),
-                        "fps": round(fps, 2),
-                        "video_duration": round(total_duration, 2),
-                        "task_id": task_id
-                    })
-                )
-                
-                # Trigger GenD inference immediately for this frame (one by one)
-                try:
-                    gend_task = run_gend_inference.delay(
+            if not ret:
+                break
+
+            frame_index += 1
+
+            try:
+
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+                face_for_model = None
+
+                # ---------- optical flow ----------
+                if prev_gray is not None:
+
+                    flow = cv2.calcOpticalFlowFarneback(
+                        prev_gray,
+                        gray,
+                        None,
+                        0.5,
+                        3,
+                        15,
+                        3,
+                        5,
+                        1.2,
+                        0
+                    )
+
+                    mag, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+
+                    motion_mask = mag > FLOW_THRESHOLD
+
+                    if motion_mask.any():
+
+                        ys, xs = np.where(motion_mask)
+
+                        x1, x2 = xs.min(), xs.max()
+                        y1, y2 = ys.min(), ys.max()
+
+                        # padding
+                        x1 = max(0, x1 - PADDING)
+                        y1 = max(0, y1 - PADDING)
+                        x2 = min(frame_rgb.shape[1], x2 + PADDING)
+                        y2 = min(frame_rgb.shape[0], y2 + PADDING)
+
+                        width = x2 - x1
+                        height = y2 - y1
+
+                        if width > MIN_CROP_SIZE and height > MIN_CROP_SIZE:
+
+                            motion_crop = frame_rgb[y1:y2, x1:x2]
+
+                            if motion_crop is not None and motion_crop.size > 0:
+
+                                detections = detector.detect_faces(motion_crop)
+
+                                if detections:
+
+                                    x, y, w, h = detections[0]["box"]
+
+                                    x = max(0, x)
+                                    y = max(0, y)
+                                    w = max(1, w)
+                                    h = max(1, h)
+
+                                    face_candidate = motion_crop[y:y+h, x:x+w]
+
+                                    if face_candidate is not None and face_candidate.size > 0:
+                                        face_for_model = face_candidate
+
+                prev_gray = gray
+
+                # ---------- skip if no face ----------
+                if face_for_model is None:
+                    skipped_count += 1
+                    continue
+
+                # ---------- preprocess ----------
+                face_img = Image.fromarray(face_for_model).resize((WIDTH, HEIGHT))
+
+                face_arr = preprocess_input(np.array(face_img))
+
+                processed_faces.append(face_arr)
+
+                # ---------- encode ----------
+                frame_bgr = cv2.cvtColor(face_for_model, cv2.COLOR_RGB2BGR)
+
+                success, buffer = cv2.imencode(".jpg", frame_bgr)
+
+                if success:
+
+                    frame_data_b64 = base64.b64encode(buffer).decode("utf-8")
+
+                    timestamp_sec = frame_index / fps
+
+                    timestamp_str = seconds_to_hhmmss(timestamp_sec)
+
+                    # ---------- redis stream ----------
+                    redis_client.publish(
+                        f"task_frames:{task_id}",
+                        json.dumps(
+                            {
+                                "type": "frame_ready",
+                                "frame_index": processed_count,
+                                "frame_data": frame_data_b64,
+                                "timestamp": timestamp_str,
+                                "timestamp_seconds": round(timestamp_sec, 3),
+                                "fps": round(fps, 2),
+                                "video_duration": round(total_duration, 2),
+                                "task_id": task_id
+                            }
+                        )
+                    )
+
+                    # ---------- GenD ----------
+                    run_gend_inference.delay(
                         task_id=task_id,
                         frame_data=frame_data_b64,
-                        frame_index=frame_count,
+                        frame_index=processed_count,
                         timestamp=timestamp_str
                     )
-                    logger.info(f"GenD inference dispatched for frame {frame_count}, task_id: {gend_task.id}")
-                except Exception as gend_err:
-                    logger.warning(f"Failed to dispatch GenD inference for frame {frame_count}: {gend_err}")
-                    
-        except Exception as e:
-            print("[REDIS ERROR]", e)
 
-        frame_count += 1
+                processed_count += 1
 
-    cap.release()
+            except Exception as e:
 
-    # ---------------- Final result ----------------
-    # Send ALL frames to GenD pipeline for detection (not just 3 preview frames)
-    preview_frames = []
-    for i in range(len(processed_faces)):
-        img = (processed_faces[i] * 255).astype(np.uint8)
-        img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        _, buffer = cv2.imencode(".jpg", img_bgr)
-        preview_frames.append(base64.b64encode(buffer).decode("utf-8"))
+                logger.warning(f"[{task_id}] frame skipped error: {e}")
 
-    result = {
-        "message": "Optical flow → face extraction → preprocessing complete",
-        "task_id": task_id,
-        "video_path": video_path,
-        "total_frames": frame_count,
-        "preview_frames": preview_frames
-    }
+                skipped_count += 1
 
-    redis_client.set(f"task_result:{task_id}", json.dumps(result))
-    
-    # Frames are now processed one by one via run_gend_inference as they are extracted
-    # No need to trigger batch pipeline at the end
-    result["message"] = "Frame extraction complete. GenD deepfake detection running on each frame."
-    logger.info(f"Frame extraction complete for task_id: {task_id}, total frames: {frame_count}")
-    
-    return result
+        cap.release()
 
+        # ---------- preview ----------
+        preview_frames = []
+
+        for arr in processed_faces:
+
+            img = (arr * 255).astype(np.uint8)
+
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+            _, buffer = cv2.imencode(".jpg", img_bgr)
+
+            preview_frames.append(
+                base64.b64encode(buffer).decode("utf-8")
+            )
+
+        result = {
+            "message": "Only frames with detected faces were processed",
+            "task_id": task_id,
+            "video_path": video_path,
+            "faces_detected_frames": processed_count,
+            "frames_skipped": skipped_count,
+            "preview_frames": preview_frames
+        }
+
+        redis_client.set(
+            f"task_result:{task_id}",
+            json.dumps(result)
+        )
+
+        logger.info(
+            f"[{task_id}] done | faces={processed_count} skipped={skipped_count}"
+        )
+
+        return result
+
+    except Exception as e:
+
+        logger.exception(f"[{task_id}] pipeline crashed: {e}")
+
+        return {
+            "error": str(e),
+            "task_id": task_id
+        }

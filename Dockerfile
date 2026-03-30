@@ -1,9 +1,14 @@
 FROM nvidia/cuda:12.6.0-runtime-ubuntu22.04
 
-# Install Python 3.12 + system deps
+# Install Python 3.12 + system deps (including XAI/MediaPipe/SAM requirements)
 RUN apt-get update && \
-    apt-get install -y python3-pip python3-dev python-is-python3 ffmpeg libsm6 libxext6 libgl1-mesa-glx && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y \
+        python3-pip python3-dev python-is-python3 \
+        ffmpeg libsm6 libxext6 libgl1-mesa-glx \
+        libglib2.0-0 \
+        cmake build-essential \
+        curl git \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -12,7 +17,32 @@ COPY requirements.txt .
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    # Install PyTorch with CUDA 11.8 wheels first (GPU-enabled)
+    pip install --no-cache-dir \
+        torch torchvision torchaudio \
+        --index-url https://download.pytorch.org/whl/cu118 && \
+    pip install --no-cache-dir -r requirements.txt && \
+    # Install segment-anything from source (Meta's SAM)
+    pip install --no-cache-dir \
+        git+https://github.com/facebookresearch/segment-anything.git
+
+# Create checkpoint and data directories
+RUN mkdir -p /app/checkpoints /app/data/tcav_concepts
+
+# --- SAM Checkpoint ---
+# Download SAM ViT-H checkpoint (~2.6 GB) unless mounted as a volume.
+# Comment this out and use a volume mount if you want to avoid re-downloading
+# on every build (recommended for production):
+#   volumes:
+#     - ./checkpoints:/app/checkpoints
+#
+# RUN curl -L \
+#     https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth \
+#     -o /app/checkpoints/sam_vit_h_4b8939.pth
+#
+# NOTE: The download is commented out by default — use the volume mount in
+# docker-compose.yml instead. The SAM technique will log a clear error if the
+# checkpoint is missing and fall back gracefully.
 
 # Copy backend code and .env
 COPY backend/ ./backend

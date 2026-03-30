@@ -1,0 +1,32 @@
+# backend/xai_config.yaml
+# XAI (Explainable AI) configuration for X-DetectRT
+# This file is loaded by config.py at startup.
+
+xai:
+  enabled: true
+
+  # List of enabled techniques (comment out to disable)
+  techniques:
+    - shap_timeshap
+    - lime_superpixels
+    - integrated_gradients
+    - sam_attribution
+    - counterfactual
+    - tcav
+    - prototype_analysis
+
+  # SAM (Segment Anything Model) checkpoint
+  sam_checkpoint: /app/checkpoints/sam_vit_h_4b8939.pth
+  sam_model_type: vit_h   # vit_h | vit_l | vit_b
+
+  # LIME settings
+  lime_num_samples: 300    # reduce for speed; increase for accuracy
+
+  # Integrated Gradients settings
+  ig_steps: 50             # number of interpolation steps
+
+  # TCAV settings
+  tcav_concept_dir: /app/data/tcav_concepts   # optional: labelled concept images
+
+  # Prototype Analysis settings
+  prototype_db_path: /app/data/known_fakes_embeddings.npy   # optional .npy file

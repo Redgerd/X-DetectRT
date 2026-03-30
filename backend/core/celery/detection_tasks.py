@@ -65,7 +65,7 @@ def run_gend_inference(self, task_id: str, frame_data: str, frame_index: int = 0
         pil_image = Image.fromarray(frame_rgb)
 
         # --- Run the actual model inference ---
-        result = run_gend_inference(task_id, pil_image)  # call the real inference function
+        result = gend_model_inference(task_id, pil_image)  # call the real inference function
         real_prob = result.get("real_prob", 0.5)
         fake_prob = result.get("fake_prob", 0.5)
         is_anomaly = fake_prob > 0.5

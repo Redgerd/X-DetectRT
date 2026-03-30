@@ -25,7 +25,7 @@ def load_gend_model(device=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model = GenD.from_pretrained(_GEND_MODEL_PATH)
+    model = GenD.from_pretrained(_GEND_MODEL_PATH, local_files_only=True)
     model.to(device)
     model.eval()
 

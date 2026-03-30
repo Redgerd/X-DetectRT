@@ -1,4 +1,5 @@
 # backend/core/celery/explainable_ai.py
+
 """
 Celery task for Explainable AI (XAI) generation.
 
@@ -24,7 +25,7 @@ from .celery_app import celery_app
 
 # Import GenD model loader and XAI helpers
 from services.detection.model import load_gend_model, _GEND_DEVICE
-from services.detection.xai_methods import generate_gradcam, generate_lime
+from services.explaination.xai_methods import generate_gradcam, generate_lime
 
 logger = logging.getLogger(__name__)
 

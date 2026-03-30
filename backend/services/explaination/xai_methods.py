@@ -21,6 +21,43 @@ import cv2
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Optional model preloading for XAI usage
+# ---------------------------------------------------------------------------
+
+from services.detection.model import load_gend_model
+
+_XAI_MODEL = None
+
+
+def init_xai_model(device: str | None = None):
+    """
+    Preload GenD model for XAI usage.
+    Call this once during FastAPI startup.
+
+    Args:
+        device: Optional torch device string ("cpu" or "cuda").
+    """
+    global _XAI_MODEL
+
+    if _XAI_MODEL is None:
+        _XAI_MODEL = load_gend_model(device=device)
+
+    return _XAI_MODEL
+
+
+def get_xai_model():
+    """
+    Returns the preloaded GenD model.
+    If not initialized, loads it lazily.
+    """
+    global _XAI_MODEL
+
+    if _XAI_MODEL is None:
+        _XAI_MODEL = load_gend_model()
+
+    return _XAI_MODEL
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -46,7 +83,6 @@ def _overlay_heatmap_on_image(heatmap: np.ndarray, original_rgb: np.ndarray) -> 
     original_bgr_resized = cv2.resize(original_bgr, (heatmap_colored.shape[1], heatmap_colored.shape[0]))
     superimposed = cv2.addWeighted(original_bgr_resized, 0.5, heatmap_colored, 0.5, 0)
     return superimposed
-
 
 # ---------------------------------------------------------------------------
 # Grad-CAM++ for Vision Transformers (patch-based)

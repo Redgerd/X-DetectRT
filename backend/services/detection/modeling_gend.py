@@ -114,7 +114,6 @@ class GenDConfig(PretrainedConfig):
         self.backbone = backbone
         self.head = head
 
-
 class GenD(PreTrainedModel):
     config_class = GenDConfig
 
@@ -125,39 +124,19 @@ class GenD(PreTrainedModel):
         self.backbone = config.backbone
         self.config = config
 
-        self._init_feature_extractor()
-        self._init_head()
+        # Do NOT init feature_extractor or head yet
+        self.feature_extractor = None
+        self.model = None
 
-    def _init_feature_extractor(self):
-        backbone = self.backbone
-        backbone_lowercase = backbone.lower()
+        self.post_init()
 
-        if "clip" in backbone_lowercase:
-            self.feature_extractor = CLIPEncoder(backbone)
-
-        elif "vit_pe" in backbone_lowercase:
-            self.feature_extractor = PerceptionEncoder(backbone)
-
-        elif "dino" in backbone_lowercase:
-            self.feature_extractor = DINOEncoder(backbone)
-
-        else:
-            raise ValueError(f"Unknown backbone: {backbone}")
-
-    def _init_head(self):
-        features_dim = self.feature_extractor.get_features_dim()
-
-        match self.head:
-            case "linear":
-                self.model = LinearProbe(features_dim, 2)
-
-            case "LinearNorm":
-                self.model = LinearProbe(features_dim, 2, True)
-
-            case _:
-                raise ValueError(f"Unknown head: {self.head}")
+    def _ensure_initialized(self):
+        if self.feature_extractor is None:
+            self._init_feature_extractor()
+        if self.model is None:
+            self._init_head()
 
     def forward(self, inputs: torch.Tensor):
+        self._ensure_initialized()
         features = self.feature_extractor(inputs)
-        outputs = self.model.forward(features)
-        return outputs
+        return self.model(features)

@@ -43,7 +43,7 @@ PADDING = 20
 FLOW_THRESHOLD = 1.2
 
 @shared_task(name="frame_selection_pipeline.run")
-def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, video_duration=None):
+def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=20, video_duration=None):
 
     try:
 

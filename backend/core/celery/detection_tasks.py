@@ -102,15 +102,18 @@ def run_gend_inference(self, task_id: str, frame_data: str, frame_index: int = 0
 
         logger.info(f"[GenD Inference] Completed for frame {frame_index}: fake_prob={fake_prob:.4f}, is_anomaly={is_anomaly}")
         
-        # ── Dispatch XAI task after detection completes ─────────────────────────
-        try:
-            frame_results = {
-                "results": [detection_result]
-            }
-            run_explainable_ai.delay(task_id, {"results": [detection_result]})
-            logger.info(f"[XAI] XAI task dispatched for task_id={task_id}, frame_index={frame_index}")
-        except Exception as xai_err:
-            logger.warning(f"[GenD Inference] Failed to dispatch XAI task: {xai_err}")
+        # ── Dispatch XAI task only if anomaly detected ─────────────────────────
+        if is_anomaly:
+            try:
+                frame_results = {
+                    "results": [detection_result]
+                }
+                run_explainable_ai.delay(task_id, {"results": [detection_result]})
+                logger.info(f"[XAI] XAI task dispatched for task_id={task_id}, frame_index={frame_index}")
+            except Exception as xai_err:
+                logger.warning(f"[GenD Inference] Failed to dispatch XAI task: {xai_err}")
+        else:
+            logger.info(f"[XAI] Skipping XAI task for frame {frame_index} - no anomaly detected")
         
         return detection_result
 

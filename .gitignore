@@ -53,3 +53,11 @@ dist-ssr
 *.sw?
 
 deepfake-env
+
+# Pip cache
+pip-log.txt
+pip-delete-this-directory.txt
+__pypackages__/
+*.egg-info/
+*.egg
+*.whl

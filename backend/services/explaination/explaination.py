@@ -182,3 +182,7 @@ def run_xai(
         frame_probs=frame_probs,
         config=config,
     )
+
+
+# 1 GRADCAP HEAT MAP
+# 2 SHAP TimeShap — Temporal Frame Attribution

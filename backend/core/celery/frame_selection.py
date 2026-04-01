@@ -137,23 +137,22 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=60, vid
 
                             motion_crop = frame_rgb[y1:y2, x1:x2]
 
-                            if motion_crop is not None and motion_crop.size > 0:
+                            # Skip redundant None check - NumPy slicing always returns array
+                            detections = detector.detect_faces(motion_crop)
 
-                                detections = detector.detect_faces(motion_crop)
+                            if detections:
 
-                                if detections:
+                                x, y, w, h = detections[0]["box"]
 
-                                    x, y, w, h = detections[0]["box"]
+                                x = max(0, x)
+                                y = max(0, y)
+                                w = max(1, w)
+                                h = max(1, h)
 
-                                    x = max(0, x)
-                                    y = max(0, y)
-                                    w = max(1, w)
-                                    h = max(1, h)
+                                face_candidate = motion_crop[y:y+h, x:x+w]
 
-                                    face_candidate = motion_crop[y:y+h, x:x+w]
-
-                                    if face_candidate is not None and face_candidate.size > 0:
-                                        face_for_model = face_candidate
+                                # Skip redundant None check - NumPy slicing always returns array
+                                face_for_model = face_candidate
 
                 prev_gray = gray
 

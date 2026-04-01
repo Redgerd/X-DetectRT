@@ -35,7 +35,7 @@ from PIL import Image
 # ── ensure backend/ is on path ──────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from xai.pipeline import run_xai_pipeline
+from explaination.pipeline import run_xai_pipeline
 
 logging.basicConfig(
     level=logging.WARNING,

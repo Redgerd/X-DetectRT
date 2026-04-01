@@ -16,7 +16,6 @@ from mtcnn import MTCNN  # Face detection
 from PIL import Image     # For resizing and image conversion
 from tensorflow.keras.applications.inception_v3 import preprocess_input
 import os
-from .spatialDetection import run_chained_detection
 # Import the GenD detection task from detection_tasks
 from .detection_tasks import run_gend_inference
 

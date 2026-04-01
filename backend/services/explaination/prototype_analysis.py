@@ -62,11 +62,11 @@ def _load_prototype_db(embedding_dim: int):
 
 def _extract_embedding(model, img_rgb: np.ndarray, device: str) -> np.ndarray:
     """Reuse the same embedding extraction as TCAV."""
-    from xai.tcav import _extract_embedding as _te
+    from explaination.tcav import _extract_embedding as _te
     return _te(model, img_rgb, device)
 
 
-from xai.style import (
+from .style import (
     PALETTE, apply_dark_style, fig_to_base64, set_axis_labels
 )
 

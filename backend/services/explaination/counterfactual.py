@@ -83,7 +83,7 @@ def _apply_perturbation(img_rgb: np.ndarray, feature: str, strength: float) -> n
     return np.clip(perturbed, 0, 255).astype(np.uint8)
 
 
-from xai.style import (
+from .style import (
     PALETTE, apply_dark_style, fig_to_base64,
     styled_barh, set_axis_labels, interpolate_colors
 )

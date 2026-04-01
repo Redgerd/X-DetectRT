@@ -27,23 +27,23 @@ logger = logging.getLogger(__name__)
 
 # Technique module registry — lazy imports so missing deps don't crash import
 TECHNIQUE_MODULES = {
-    "shap_timeshap":        "xai.shap_timeshap",
-    "lime_superpixels":     "xai.lime_superpixels",
-    "integrated_gradients": "xai.integrated_gradients",
-    "sam_attribution":      "xai.sam_attribution",
-    "counterfactual":       "xai.counterfactual",
-    "tcav":                 "xai.tcav",
-    "prototype_analysis":   "xai.prototype_analysis",
+    "shap_timeshap":        "services.explaination.shap_timeshap",
+    "lime_superpixels":     "services.explaination.lime_superpixels",
+    "integrated_gradients": "services.explaination.integrated_gradients",
+    "sam_attribution":      "services.explaination.sam_attribution",
+    "counterfactual":       "services.explaination.counterfactual",
+    "tcav":                 "services.explaination.tcav",
+    "prototype_analysis":   "services.explaination.prototype_analysis",
 }
 
 DEFAULT_ENABLED = [
-    "shap_timeshap",
-    "lime_superpixels",
-    "integrated_gradients",
-    "sam_attribution",
-    "counterfactual",
-    "tcav",
-    "prototype_analysis",
+    "shap_timeshap",        # Fast - uses pre-computed probabilities
+    "tcav",                 # Fast - uses simulated concepts
+    "prototype_analysis",   # Fast - cosine similarity only
+    # Disabled slow techniques:
+    # "lime_superpixels",     # Too slow
+    # "integrated_gradients", # Too slow
+    # "counterfactual",       # Too slow
 ]
 
 

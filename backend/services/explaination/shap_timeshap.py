@@ -17,7 +17,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-from xai.style import (
+from .style import (
     PALETTE, apply_dark_style, fig_to_base64, set_axis_labels
 )
 

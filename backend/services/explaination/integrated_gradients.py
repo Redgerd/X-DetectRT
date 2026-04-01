@@ -20,7 +20,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-from xai.style import (
+from .style import (
     PALETTE, apply_dark_style, fig_to_base64,
     styled_barh, set_axis_labels, interpolate_colors
 )
@@ -61,7 +61,7 @@ def _compute_integrated_gradients(model, input_tensor, baseline_tensor,
 
 def _get_mediapipe_masks(img_rgb: np.ndarray):
     """Return dict of zone_name -> binary mask using MediaPipe Face Mesh."""
-    from xai.lime_superpixels import FACIAL_ZONES, _get_zone_mask
+    from lime_superpixels import FACIAL_ZONES, _get_zone_mask
     try:
         import mediapipe as mp
         h, w = img_rgb.shape[:2]

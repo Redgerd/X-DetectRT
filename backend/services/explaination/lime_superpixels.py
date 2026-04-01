@@ -94,7 +94,7 @@ def _slic_fallback(img_rgb: np.ndarray, n_segments=10):
     return segments, zone_labels
 
 
-from xai.style import (
+from .style import (
     PALETTE, apply_dark_style, fig_to_base64,
     styled_barh, set_axis_labels, interpolate_colors
 )

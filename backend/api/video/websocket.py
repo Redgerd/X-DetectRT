@@ -8,7 +8,7 @@ import numpy as np
 import base64
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect
 from core.celery.frame_selection import extract_faces_with_optical_flow
-from core.celery.detection_tasks import run_gend_inference  # Import directly
+from core.celery.detection_tasks import run_gend_inference 
 import json
 from json import JSONDecodeError
 import redis

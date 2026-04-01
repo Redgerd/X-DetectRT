@@ -137,7 +137,7 @@ def _extract_embedding(model, img_rgb: np.ndarray, device: str) -> np.ndarray:
     return np.zeros(512)
 
 
-from xai.style import (
+from .style import (
     PALETTE, apply_dark_style, fig_to_base64,
     styled_barh, set_axis_labels, tcav_tier_colors
 )

@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 def base64_to_image(base64_str: str) -> np.ndarray:
     """Convert base64 string to OpenCV image"""
     encoded_data = base64_str.split(',')[1] if ',' in base64_str else base64_str
-    nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
-    img = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
+    decoded_data = base64.b64decode(encoded_data)
+    nparr = np.frombuffer(decoded_data, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     return img
 

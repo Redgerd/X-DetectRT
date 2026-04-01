@@ -314,45 +314,30 @@ async def websocket_task(ws: WebSocket):
                 
                 frame_data_b64 = base64.b64encode(buffer).decode("utf-8")
                 
-                # Send frame with detection result
-                detection_result = await send_frame_with_detection(
-                    ws=ws,
+                # Dispatch detection task directly (no double-wait pattern)
+                detection_task = run_gend_inference.delay(
                     task_id=task_id,
                     frame_data=frame_data_b64,
                     frame_index=0,
                     timestamp="00:00:00.000",
-                    timestamp_seconds=0.0,
-                    fps=1.0,
-                    video_duration=0.0,
-                    is_image=True,
-                    wait_for_detection=True
                 )
                 
-                if detection_result is None:
-                    # If waiting for detection failed, start detection task separately
-                    detection_task = run_gend_inference.delay(
-                        task_id=task_id,
-                        frame_data=frame_data_b64,
-                        frame_index=0,
-                        timestamp="00:00:00.000",
-                    )
-                    
-                    logger.info(f"Sent image to detection worker for task: {task_id}")
-                    
-                    # Wait for detection result using shared function
-                    detection_result = await wait_for_detection_result(
-                        ws=ws,
-                        task_id=task_id,
-                        detection_task=detection_task,
-                        timeout=60
-                    )
+                logger.info(f"Sent image to detection worker for task: {task_id}")
+                
+                # Wait for detection result
+                detection_result = await wait_for_detection_result(
+                    ws=ws,
+                    task_id=task_id,
+                    detection_task=detection_task,
+                    timeout=60
+                )
                 
                 # Send completion message
                 await safe_send_json(ws, {
                     "type": "processing_complete",
                     "message": "Image processing completed",
                     "total_frames": 1,
-                    "anomaly_count": detection_result.get("anomaly_count", 0) if detection_result else 0,
+                    "anomaly_count": detection_result.get("anomaly_count", 0) if detection_result and isinstance(detection_result, dict) else 0,
                     "task_id": task_id,
                     "is_image": True,
                     "detection_result": detection_result

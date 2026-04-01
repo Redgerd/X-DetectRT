@@ -1,47 +1,66 @@
-aioredis
-alembic
-celery[redis]
+# ───────────────── Core API / Backend ─────────────────
 fastapi[all]
-flower
-httpx 
-jwt
-passlib[bcrypt]
-psycopg2-binary
-pytest 
-python-jose[cryptography]
-python-multipart
-google-auth
-redis
-sqlmodel
-sqlalchemy
-ultralytics
 uvicorn[standard]
-shapely
-tensorflow[and-cuda]
-keras
-mtcnn
-pillow
-opencv-python-headless
+sqlalchemy
+sqlmodel
+alembic
+psycopg2-binary
+python-multipart
+
+# ───────────────── Auth / Security ─────────────────
+python-jose[cryptography]
+passlib[bcrypt]
+# REMOVED: jwt — conflicts with python-jose (namespace collision)
+google-auth
+
+# ───────────────── Async / Networking ─────────────────
+httpx
+aioredis
+redis
+
+# ───────────────── Task Queue ─────────────────
+celery[redis]
+flower
+
+# ───────────────── Core ML / Numerical ─────────────────
 numpy
-requests
-transformers==5.2.0
-timm
-lime
+scipy
+
+# ───────────────── TensorFlow ─────────────────
+tensorflow
+
+# ───────────────── Computer Vision ─────────────────
+opencv-python-headless
+pillow
 scikit-image
-# ── Audio deepfake detection (READ module) ──────────────────────────────────
-# NOTE: torch / torchaudio are installed by the Dockerfile with --index-url
-#       https://download.pytorch.org/whl/cu118 to ensure the CUDA variant.
-#       Adding them here without that flag would pull CPU-only wheels.
+shapely
+
+# ───────────────── Detection / Models ─────────────────
+ultralytics
+transformers==4.56.2
+timm
+
+# ───────────────── Audio ─────────────────
 librosa
 soundfile
-captum>=0.7.0
-shap>=0.44.0
+numba
+llvmlite
+
+# ───────────────── Explainability (XAI) ─────────────────
+captum
+shap
+lime
+alibi
+
+# ───────────────── ML Utilities ─────────────────
+scikit-learn
 matplotlib
-# ── XAI Techniques (Advanced) ───────────────────────────────────────────────
-timeshap>=0.3.0
-mediapipe>=0.10.0
-alibi>=0.9.0
-scikit-learn>=1.3.0
-PyYAML>=6.0
-# segment-anything is installed from source in Dockerfile (facebookresearch/segment-anything)
-# dlib is optional — only needed if mediapipe is insufficient
+
+# ───────────────── Face / Media ─────────────────
+mediapipe
+mtcnn
+
+# ───────────────── General ─────────────────
+requests
+PyYAML
+pytest

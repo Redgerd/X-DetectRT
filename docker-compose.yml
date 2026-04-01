@@ -25,7 +25,7 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 3
 
   # FastAPI App (only this builds)
@@ -33,7 +33,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: my-fastapi-app:latest
+    image: my-fastapi-app:patched
     container_name: fastapi_app
     environment:
       REDIS_URL: ${REDIS_URL}
@@ -58,7 +58,7 @@ services:
 
   # Celery Frame Worker (reuses image)
   celery-frame-worker:
-    image: my-fastapi-app:latest
+    image: my-fastapi-app:patched
     hostname: frame_worker
     container_name: celery-frame-worker
     working_dir: /app/backend
@@ -90,13 +90,13 @@ services:
           "CMD-SHELL",
           "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'",
         ]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 30s
       retries: 5
-      start_period: 30s
+      start_period: 120s
 
   celery-detection-worker:
-    image: my-fastapi-app:latest
+    image: my-fastapi-app:patched
     hostname: detection_worker
     working_dir: /app/backend
     environment:
@@ -124,10 +124,10 @@ services:
           "CMD-SHELL",
           "celery -A ${CELERY_MODULE}.celery_app inspect ping -t 1 | grep -q 'ok'",
         ]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 30s
       retries: 5
-      start_period: 30s
+      start_period: 120s
 
   flower:
     image: my-fastapi-app:latest

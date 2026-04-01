@@ -29,21 +29,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Create checkpoint and data directories
 RUN mkdir -p /app/checkpoints /app/data/tcav_concepts
 
-# --- SAM Checkpoint ---
-# Download SAM ViT-H checkpoint (~2.6 GB) unless mounted as a volume.
-# Comment this out and use a volume mount if you want to avoid re-downloading
-# on every build (recommended for production):
-#   volumes:
-#     - ./checkpoints:/app/checkpoints
-#
-# RUN curl -L \
-#     https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth \
-#     -o /app/checkpoints/sam_vit_h_4b8939.pth
-#
-# NOTE: The download is commented out by default — use the volume mount in
-# docker-compose.yml instead. The SAM technique will log a clear error if the
-# checkpoint is missing and fall back gracefully.
-
 # Copy backend code and .env
 COPY backend/ ./backend
 COPY .env /app/.env
@@ -55,6 +40,8 @@ RUN chmod +x /wait-for-it.sh
 # Copy sample data (ensure ml_models is inside backend)
 COPY data/ /app/data
 COPY GenD_PE_L/ /app/GenD_PE_L
+COPY ASVspoof/ /app/ASVspoof
+
 
 EXPOSE 8000
 

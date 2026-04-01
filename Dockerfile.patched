@@ -1,0 +1,6 @@
+# Use your existing image as base
+FROM my-fastapi-app:latest
+
+# Install only the missing packages
+RUN pip install --no-cache-dir \
+    lime

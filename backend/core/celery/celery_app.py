@@ -39,13 +39,12 @@ celery_app.conf.update(
     task_default_routing_key = 'default',
 
     task_routes = {
+        # Frame selection 
         'frame_selection_pipeline.run': {'queue': 'frame_selection_queue'},
-        'backend.core.celery.detection_tasks.perform_detection': {'queue': 'deepfake_detection_queue'},
+        # Deepfake detection
         'backend.core.celery.detection_tasks.run_gend_inference': {'queue': 'deepfake_detection_queue'},
-        'backend.core.celery.detection_tasks.run_gend_pipeline': {'queue': 'deepfake_detection_queue'},
-        'backend.core.celery.spatialDetection.analyze_frames': {'queue': 'deepfake_detection_queue'},
-        'backend.core.celery.spatialDetection.run_chained_detection': {'queue': 'deepfake_detection_queue'},
         'backend.core.celery.explainable_ai.run_explainable_ai': {'queue': 'deepfake_detection_queue'},
+        # LLM analysis
         'backend.core.celery.llm.run_llm': {'queue': 'deepfake_detection_queue'},
         # Audio pipeline
         'audio_detection.run_audio_pipeline': {'queue': 'audio_detection_queue'},
@@ -55,10 +54,7 @@ celery_app.conf.update(
 # Autodiscover tasks from specified modules
 celery_app.autodiscover_tasks([
     "core.celery.frame_selection",
-    "core.celery.process_face",
     "core.celery.detection_tasks",
-    "core.celery.tasks",
-    "core.celery.spatialDetection",
     "core.celery.explainable_ai",
     "core.celery.llm",
     # Audio pipeline

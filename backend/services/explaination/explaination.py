@@ -1,4 +1,3 @@
-# backend/services/detection/xai_methods.py
 """
 Explainable AI (XAI) helpers for GenD deepfake detection.
 
@@ -242,70 +241,3 @@ def generate_gradcam(model, image_tensor: torch.Tensor, original_pil: Image.Imag
         # Return transparent placeholder (original image un-annotated)
         return _pil_to_base64(original_pil.convert("RGB"))
 
-
-# ---------------------------------------------------------------------------
-# LIME – Local Interpretable Model-Agnostic Explanations
-# ---------------------------------------------------------------------------
-
-def generate_lime(model, original_pil: Image.Image, device: str) -> str:
-    """
-    Generate a LIME superpixel explanation for the GenD model.
-
-    Args:
-        model: The loaded GenD model (eval mode).
-        original_pil: The raw PIL image.
-        device: Torch device string ('cpu' or 'cuda').
-
-    Returns:
-        base64-encoded JPEG string of the LIME boundary overlay image.
-    """
-    try:
-        from lime import lime_image
-        from skimage.segmentation import mark_boundaries
-
-        explainer = lime_image.LimeImageExplainer(verbose=False)
-
-        def _predict_batch(images: np.ndarray) -> np.ndarray:
-            """
-            Prediction function expected by LIME: takes (N, H, W, 3) uint8 numpy array,
-            returns (N, num_classes) probability array.
-            """
-            probs_list = []
-            with torch.no_grad():
-                for img_arr in images:
-                    pil_img = Image.fromarray(img_arr.astype(np.uint8))
-                    tensor = model.feature_extractor.preprocess(pil_img).unsqueeze(0).to(device)
-                    logits = model(tensor)
-                    probs = torch.softmax(logits, dim=-1).cpu().numpy()[0]
-                    probs_list.append(probs)
-            return np.array(probs_list)
-
-        original_rgb = np.array(original_pil.convert("RGB"))
-
-        explanation = explainer.explain_instance(
-            original_rgb,
-            _predict_batch,
-            top_labels=1,
-            hide_color=0,
-            num_samples=100,      # balance quality vs. speed for real-time use
-            batch_size=10,
-        )
-
-        # Visualise the top label superpixels (positive contributions only)
-        top_label = explanation.top_labels[0]
-        temp, mask = explanation.get_image_and_mask(
-            top_label,
-            positive_only=True,
-            num_features=10,
-            hide_rest=False,
-        )
-
-        lime_img = mark_boundaries(temp / 255.0, mask)      # float [0,1] RGB
-        lime_img_uint8 = (lime_img * 255).astype(np.uint8)
-        lime_bgr = cv2.cvtColor(lime_img_uint8, cv2.COLOR_RGB2BGR)
-
-        return _numpy_bgr_to_base64(lime_bgr)
-
-    except Exception as e:
-        logger.error(f"[XAI] LIME generation failed: {e}", exc_info=True)
-        return _pil_to_base64(original_pil.convert("RGB"))

@@ -8,7 +8,7 @@ import numpy as np
 import base64
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect
 from core.celery.frame_selection import extract_faces_with_optical_flow
-from core.celery.detection_tasks import run_gend_inference  # Import directly
+from core.celery.detection_tasks import run_gend_inference 
 import json
 from json import JSONDecodeError
 import redis
@@ -380,6 +380,8 @@ async def websocket_task(ws: WebSocket):
                     pubsub = redis_client.pubsub()
                     pubsub.subscribe(f"task_frames:{task_id}")
                     pubsub.subscribe(f"task_detection:{task_id}")
+                    # Subscribe to XAI results for Grad-CAM
+                    pubsub.subscribe(f"task_xai:{task_id}")
                     
                     # Listen for frames and detection results
                     frame_count = 0
@@ -452,6 +454,13 @@ async def websocket_task(ws: WebSocket):
                                         logger.debug(f"Forwarded detection result {detection_count} for frame {frame_index}")
                                         await asyncio.sleep(FRAME_SEND_DELAY)
                                         
+                                    elif data_type == 'xai_ready':
+                                        # XAI/Grad-CAM result from explainable_ai task
+                                        # Forward directly to frontend
+                                        await safe_send_json(ws, data)
+                                        logger.debug(f"Forwarded XAI result for frame {data.get('frame_index')}")
+                                        await asyncio.sleep(FRAME_SEND_DELAY)
+                                        
                                     else:
                                         # Forward other message types
                                         await safe_send_json(ws, data)
@@ -474,6 +483,7 @@ async def websocket_task(ws: WebSocket):
                     # Unsubscribe from Redis channels
                     pubsub.unsubscribe(f"task_frames:{task_id}")
                     pubsub.unsubscribe(f"task_detection:{task_id}")
+                    pubsub.unsubscribe(f"task_xai:{task_id}")
                     pubsub.close()
                     
                 except Exception as e:

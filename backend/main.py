@@ -12,7 +12,7 @@ from config import settings
 from core.database import test_db_connection
 from core.celery.celery_app import celery_app
 from services.detection.model import load_gend_model
-from services.explaination.xai_methods import init_xai_model
+from services.explaination.explaination import init_xai_model
 
 # FastAPI App Setup
 app = FastAPI(
@@ -78,11 +78,58 @@ async def startup_db_check():
     # Initialize XAI Model (Grad-CAM + LIME)
     # ------------------------------
     try:
-        init_xai_model()  # from xai_methods.py
+        init_xai_model()
         logger.info("✅ XAI model initialized successfully.")
     except Exception as e:
         logger.error(f"❌ Failed to initialize XAI model: {e}", exc_info=True)
         raise e  # Optional: crash app if XAI fails
+    
+# ------------------------------
+    # Dependency Check
+    # ------------------------------
+    try:
+        _LIBS = [
+            ("torch",            "torch",                   True),
+            ("lime",             "lime",                    True),
+            ("PIL",              "pillow",                  True),
+            ("numpy",            "numpy",                   True),
+            ("cv2",              "opencv-python-headless",  True),
+            ("matplotlib",       "matplotlib",              True),
+            ("sklearn",          "scikit-learn",            True),
+            ("skimage",          "scikit-image",            True),
+            ("yaml",             "PyYAML",                  True),
+            ("shap",             "shap",                    True),
+            ("timeshap",         "timeshap",                True),
+            ("transformers",     "transformers",            True),
+            ("timm",             "timm",                    True),
+            ("mediapipe",        "mediapipe",               False),  # optional — graceful fallback
+            ("segment_anything", "segment-anything",        False),  # optional — graceful fallback
+            ("captum",           "captum",                  False),  # optional
+            ("librosa",          "librosa",                 False),  # optional — audio only
+            ("soundfile",        "soundfile",               False),  # optional — audio only
+        ]
+
+        _missing = []
+        for _import_name, _pip_name, _required in _LIBS:
+            try:
+                __import__(_import_name)
+                logger.info(f"  ✅ {_import_name}")
+            except ImportError:
+                _tag = "REQUIRED" if _required else "optional"
+                logger.warning(f"  ❌ {_import_name} ({_tag}) — pip install {_pip_name}")
+                if _required:
+                    _missing.append(_pip_name)
+
+        if _missing:
+            raise RuntimeError(
+                f"Missing required libraries: {', '.join(_missing)}"
+            )
+
+        logger.info("✅ All required dependencies present.")
+
+    except Exception as e:
+        logger.error(f"❌ Dependency check failed: {e}", exc_info=True)
+        raise e
 
     # ------------------------------
     # Load Audio / WavLM Models

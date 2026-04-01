@@ -61,3 +61,5 @@ __pypackages__/
 *.egg-info/
 *.egg
 *.whl
+
+pip_cache

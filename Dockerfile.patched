@@ -3,12 +3,4 @@ FROM my-fastapi-app:latest
 
 # Install only the missing packages
 RUN pip install --no-cache-dir \
-    scikit-learn \
-    scikit-image \
-    shap \
-    timeshap \
-    mediapipe \
-    segment-anything \
-    captum \
-    librosa \
-    soundfile
+    lime

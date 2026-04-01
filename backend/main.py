@@ -12,7 +12,7 @@ from config import settings
 from core.database import test_db_connection
 from core.celery.celery_app import celery_app
 from services.detection.model import load_gend_model
-from services.explaination.explaination import load_xai_model
+from services.explaination.explaination import init_xai_model
 
 # FastAPI App Setup
 app = FastAPI(
@@ -78,7 +78,7 @@ async def startup_db_check():
     # Initialize XAI Model (Grad-CAM + LIME)
     # ------------------------------
     try:
-        load_xai_model()
+        init_xai_model()
         logger.info("✅ XAI model initialized successfully.")
     except Exception as e:
         logger.error(f"❌ Failed to initialize XAI model: {e}", exc_info=True)
@@ -90,6 +90,7 @@ async def startup_db_check():
     try:
         _LIBS = [
             ("torch",            "torch",                   True),
+            ("lime",             "lime",                    True),
             ("PIL",              "pillow",                  True),
             ("numpy",            "numpy",                   True),
             ("cv2",              "opencv-python-headless",  True),

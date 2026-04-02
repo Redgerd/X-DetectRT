@@ -461,6 +461,13 @@ async def websocket_task(ws: WebSocket):
                                         logger.debug(f"Forwarded XAI result for frame {data.get('frame_index')}")
                                         await asyncio.sleep(FRAME_SEND_DELAY)
                                         
+                                    elif data_type == 'timeshap_ready':
+                                        # TimeSHAP result from explainable_ai task
+                                        # Forward directly to frontend
+                                        await safe_send_json(ws, data)
+                                        logger.debug(f"Forwarded TimeSHAP result for task {data.get('task_id')}")
+                                        await asyncio.sleep(FRAME_SEND_DELAY)
+                                        
                                     else:
                                         # Forward other message types
                                         await safe_send_json(ws, data)
@@ -495,6 +502,7 @@ async def websocket_task(ws: WebSocket):
                 
                 # Get detection result
                 detection_result = None
+                xai_result = None
                 if redis_client:
                     detection_result_json = redis_client.get(f"detection_result:{task_id}")
                     if detection_result_json:
@@ -504,10 +512,19 @@ async def websocket_task(ws: WebSocket):
                         except Exception as e:
                             logger.error(f"Error parsing detection result: {e}", exc_info=True)
                     
+                    # Get XAI result (includes Grad-CAM and TimeSHAP)
+                    xai_result_json = redis_client.get(f"xai_result:{task_id}")
+                    if xai_result_json:
+                        try:
+                            xai_result = json.loads(xai_result_json)
+                            result['xai'] = xai_result
+                        except Exception as e:
+                            logger.error(f"Error parsing XAI result: {e}", exc_info=True)
+                    
                     redis_client.close()
                 
-                # Send completion message
-                await safe_send_json(ws, {
+                # Send completion message with detection and XAI results
+                completion_message = {
                     "type": "processing_complete",
                     "message": "Frame extraction and spatial detection completed",
                     "total_frames": result.get("total_frames", 0),
@@ -515,7 +532,15 @@ async def websocket_task(ws: WebSocket):
                     "anomaly_count": detection_result.get("anomaly_count", 0) if detection_result else 0,
                     "task_id": task_id,
                     "frames_with_detection": processed_frames
-                })
+                }
+                
+                # Include XAI results if available (Grad-CAM + TimeSHAP)
+                if xai_result:
+                    completion_message["xai_results"] = xai_result.get("xai_results", [])
+                    completion_message["timeshap_result"] = xai_result.get("timeshap_result", None)
+                    completion_message["total_frames_explained"] = xai_result.get("total_frames_explained", 0)
+                
+                await safe_send_json(ws, completion_message)
                 
             except Exception as e:
                 logger.error(f"Error in frame extraction: {e}", exc_info=True)

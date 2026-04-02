@@ -49,6 +49,7 @@ services:
       - ./uploads:/app/uploads
       - ./pip_cache:/root/.cache/pip
       - ./checkpoints:/app/checkpoints
+      - ./ASVspoof:/app/ASVspoof
     mem_limit: 8g
     depends_on:
       - postgres-db
@@ -74,6 +75,7 @@ services:
       - ./pip_cache:/root/.cache/pip
       - ./uploads:/app/uploads
       - ./checkpoints:/app/checkpoints
+      - ./ASVspoof:/app/ASVspoof
     depends_on:
       - redis
       - postgres-db
@@ -111,6 +113,7 @@ services:
       - ./pip_cache:/root/.cache/pip
       - ./uploads:/app/uploads
       - ./checkpoints:/app/checkpoints
+      - ./ASVspoof:/app/ASVspoof
     mem_limit: 8g
     depends_on:
       - redis
@@ -144,6 +147,7 @@ services:
       - ./backend:/app/backend
       - ./pip_cache:/root/.cache/pip
       - ./uploads:/app/uploads
+      - ./ASVspoof:/app/ASVspoof
     ports:
       - "5555:5555"
     depends_on:

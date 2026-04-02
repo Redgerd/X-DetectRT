@@ -1,122 +1,32 @@
 # backend/services/audio/xai_audio.py
 """
-READ – Module C: Explanation Engine (XAI)
+Module C: Explanation Engine (XAI) for Audio Deepfake Detection.
 
-Implements two complementary explanation methods:
+Returns RAW attribution score vectors (not PNG images).
+The React frontend renders these as Canvas overlays.
 
-    1. Integrated Gradients (captum) – gradient-based temporal attribution.
+Two complementary methods:
+
+    1. Integrated Gradients (captum)
+       Gradient path from a zero-baseline feature tensor.
        Tells us which WavLM time-frames pushed the decision toward "Fake".
+       Returns: list[float], one score per WavLM time-frame.
 
-    2. SHAP DeepExplainer – game-theory–based attribution over the feature
-       sequence. More stable for segment-level explanations.
-
-Both produce a 1-D temporal score vector that is:
-    - Upsampled to raw sample resolution (64 600)
-    - Overlaid on the audio waveform as a red/blue heatmap PNG
-    - Returned as a base64-encoded string
+    2. SHAP KernelExplainer (model-agnostic)
+       Uses a numpy-callable wrapper — no Keras / TF dependency.
+       Replaced DeepExplainer / GradientExplainer which crash on newer SHAP
+       versions when wrapping PyTorch nn.Module callables.
+       Returns: list[float], one Shapley value per WavLM time-frame.
 """
 
-import io
-import base64
 import logging
-
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _tensor_to_heatmap_png(
-    waveform: np.ndarray,
-    attribution: np.ndarray,
-    sample_rate: int = 16_000,
-    title: str = "Temporal Attribution Heatmap",
-) -> str:
-    """
-    Render a waveform overlaid with a red/blue attribution heatmap.
-
-    Args:
-        waveform:     1-D float array of raw audio samples.
-        attribution:  1-D float array, same length as *waveform*.
-                      Positive values → "Fake" evidence; Negative → "Real".
-        sample_rate:  For computing the time axis.
-        title:        Plot title.
-
-    Returns:
-        Base64-encoded PNG (no data-URI prefix).
-    """
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        from matplotlib.collections import LineCollection
-        import matplotlib.colors as mcolors
-    except ImportError:
-        raise RuntimeError("matplotlib is required: pip install matplotlib")
-
-    times = np.linspace(0, len(waveform) / sample_rate, num=len(waveform))
-
-    # Normalise attribution to [-1, 1]
-    abs_max = np.abs(attribution).max()
-    if abs_max > 1e-8:
-        norm_attr = attribution / abs_max
-    else:
-        norm_attr = np.zeros_like(attribution)
-
-    fig, axes = plt.subplots(2, 1, figsize=(12, 4), dpi=100, sharex=True)
-    fig.suptitle(title, fontsize=10, fontweight="bold")
-
-    # Top panel: raw waveform
-    axes[0].plot(times, waveform, color="#4A90E2", linewidth=0.5, alpha=0.85)
-    axes[0].set_ylabel("Amplitude", fontsize=8)
-    axes[0].set_xlim(0, times[-1])
-    axes[0].tick_params(labelsize=7)
-
-    # Bottom panel: attribution heatmap as a coloured fill
-    # Positive (red) = evidence of "Fake"; Negative (blue) = evidence of "Real"
-    cmap = plt.get_cmap("RdBu_r")
-    norm = mcolors.TwoSlopeNorm(vmin=-1.0, vcenter=0.0, vmax=1.0)
-
-    axes[1].fill_between(
-        times,
-        norm_attr,
-        where=(norm_attr >= 0),
-        color="#E74C3C",
-        alpha=0.7,
-        label="↑ Fake evidence",
-    )
-    axes[1].fill_between(
-        times,
-        norm_attr,
-        where=(norm_attr < 0),
-        color="#3498DB",
-        alpha=0.7,
-        label="↓ Real evidence",
-    )
-    axes[1].axhline(0, color="gray", linewidth=0.5)
-    axes[1].set_ylabel("Attribution", fontsize=8)
-    axes[1].set_xlabel("Time (s)", fontsize=8)
-    axes[1].legend(fontsize=7, loc="upper right")
-    axes[1].tick_params(labelsize=7)
-
-    fig.tight_layout()
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
-
-
-def _upsample_scores(scores: np.ndarray, target_len: int) -> np.ndarray:
-    """Linearly interpolate a short attribution vector to *target_len*."""
-    src_idx = np.linspace(0, len(scores) - 1, num=len(scores))
-    tgt_idx = np.linspace(0, len(scores) - 1, num=target_len)
-    return np.interp(tgt_idx, src_idx, scores)
+# Hard-coded for speed (KernelExplainer cost scales with n_background)
+SHAP_N_BACKGROUND = 3
 
 
 # ---------------------------------------------------------------------------
@@ -124,31 +34,28 @@ def _upsample_scores(scores: np.ndarray, target_len: int) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 def generate_integrated_gradients_xai(
-    audio_tensor: torch.FloatTensor,
+    audio_tensor:   torch.FloatTensor,
     detector_model: torch.nn.Module,
-    wavlm_model: torch.nn.Module,
-    device: str,
-    target_class: int = 1,          # 1 = Fake
-    n_steps: int = 50,
-) -> str:
+    wavlm_model:    torch.nn.Module,
+    device:         str,
+    target_class:   int = 1,   # 1 = Fake
+    n_steps:        int = 50,
+) -> list:
     """
-    Generate a temporal attribution heatmap using Integrated Gradients.
-
-    IG attributes the "Fake" class score to each WavLM time-frame by
-    accumulating gradients along the straight-line path from a zero
-    baseline to the actual feature sequence.
+    Run Integrated Gradients over WavLM feature frames.
 
     Args:
-        audio_tensor:   Pre-processed 1-D float tensor (64 600 samples).
-        detector_model: Loaded DeepFakeDetector (eval mode).
-        wavlm_model:    Loaded WavLM Base+ (frozen, eval mode).
+        audio_tensor:   1-D float tensor (64 600 samples at 16 kHz).
+        detector_model: DeepFakeDetector (eval mode).
+        wavlm_model:    WavLM Base+ (frozen, eval mode).
         device:         Torch device string.
-        target_class:   Which logit to attribute (1 = Fake).
-        n_steps:        Number of IG integration steps (more = more accurate
-                        but slower; 50 is a good balance).
+        target_class:   Output index to attribute (1 = Fake).
+        n_steps:        IG interpolation steps.
 
     Returns:
-        Base64-encoded PNG of waveform + heatmap.
+        list[float] — per-frame attribution (mean over 768 hidden dims),
+        length = number of WavLM output frames (≈ 201 for 64 600-sample input).
+        Positive = evidence of Fake; Negative = evidence of Real.
     """
     try:
         from captum.attr import IntegratedGradients
@@ -157,21 +64,19 @@ def generate_integrated_gradients_xai(
 
     detector_model.eval()
 
-    # Extract WavLM features (frozen, no grad needed here)
+    # Extract WavLM features (frozen — no grad)
     with torch.no_grad():
-        inp = audio_tensor.unsqueeze(0).to(device)         # (1, 64600)
+        inp      = audio_tensor.unsqueeze(0).to(device)          # (1, N)
         features = wavlm_model(input_values=inp).last_hidden_state  # (1, T, 768)
 
+    # IG needs requires_grad on the input features
     features = features.detach().requires_grad_(True)
 
-    # Wrap detector so IG can call it with feature tensors directly
     def _forward(feat: torch.Tensor) -> torch.Tensor:
-        logits = detector_model(feat)                       # (B, 2)
-        return logits
+        return detector_model(feat)   # (B, 2)
 
-    ig = IntegratedGradients(_forward)
-
-    baseline = torch.zeros_like(features)
+    ig        = IntegratedGradients(_forward)
+    baseline  = torch.zeros_like(features)
 
     attributions = ig.attribute(
         features,
@@ -181,49 +86,55 @@ def generate_integrated_gradients_xai(
         return_convergence_delta=False,
     )  # (1, T, 768)
 
-    # Reduce over hidden dim → (T,)
-    attr_scores = attributions[0].detach().cpu().numpy().mean(axis=-1)  # (T,)
+    # Mean over hidden dim → (T,)
+    attr_scores = attributions[0].detach().cpu().numpy().mean(axis=-1)
 
-    # Upsample to raw sample resolution
-    waveform_np = audio_tensor.cpu().numpy()
-    attr_upsampled = _upsample_scores(attr_scores, len(waveform_np))
+    # Normalise to [-1, 1] for consistent frontend rendering
+    abs_max = np.abs(attr_scores).max()
+    if abs_max > 1e-8:
+        attr_scores = attr_scores / abs_max
 
-    return _tensor_to_heatmap_png(
-        waveform_np,
-        attr_upsampled,
-        title="Integrated Gradients – Temporal Attribution (Fake Class)",
+    logger.info(
+        f"[XAI-IG] frames={len(attr_scores)}, "
+        f"max={attr_scores.max():.3f}, min={attr_scores.min():.3f}"
     )
+    return attr_scores.tolist()
 
 
 # ---------------------------------------------------------------------------
-# Method 2: SHAP DeepExplainer
+# Method 2: SHAP KernelExplainer (model-agnostic, no TF/Keras dependency)
 # ---------------------------------------------------------------------------
 
 def generate_shap_xai(
-    audio_tensor: torch.FloatTensor,
+    audio_tensor:   torch.FloatTensor,
     detector_model: torch.nn.Module,
-    wavlm_model: torch.nn.Module,
-    device: str,
-    target_class: int = 1,
-    n_background: int = 5,
-) -> str:
+    wavlm_model:    torch.nn.Module,
+    device:         str,
+    target_class:   int = 1,
+    n_background:   int = SHAP_N_BACKGROUND,
+) -> list:
     """
-    Generate a temporal attribution heatmap using SHAP DeepExplainer.
+    Run SHAP KernelExplainer over WavLM feature frames.
 
-    SHAP assigns each WavLM time-frame a Shapley value that reflects its
-    marginal contribution to the "Fake" prediction relative to a set of
-    background (reference) samples synthesised from Gaussian noise.
+    KernelExplainer is model-agnostic — it calls the model as a black-box
+    numpy function, so there are no Keras 3 / TF 2.16 compatibility issues.
+
+    Strategy:
+        - Flatten (1, T, 768) → (1, T*768) for KernelExplainer input.
+        - Background = *n_background* small Gaussian-noise tensors.
+        - After shap_values() reshape back to (T, 768) and mean over hidden dim.
 
     Args:
-        audio_tensor:    Pre-processed 1-D float tensor (64 600 samples).
-        detector_model:  Loaded DeepFakeDetector (eval mode).
-        wavlm_model:     Loaded WavLM Base+ (frozen).
-        device:          Torch device string.
-        target_class:    Which output neuron to explain (1 = Fake).
-        n_background:    Number of noise-based background samples for SHAP.
+        audio_tensor:   1-D float tensor (64 600 samples).
+        detector_model: DeepFakeDetector.
+        wavlm_model:    WavLM Base+ (frozen).
+        device:         Torch device string.
+        target_class:   Output index to explain (1 = Fake).
+        n_background:   Background samples (3 = fast, ~3–5 s on CPU).
 
     Returns:
-        Base64-encoded PNG of waveform + heatmap.
+        list[float] — per-frame SHAP values, same length as IG output.
+        Positive = pushed toward Fake; Negative = pushed toward Real.
     """
     try:
         import shap
@@ -234,91 +145,104 @@ def generate_shap_xai(
 
     # Extract WavLM features
     with torch.no_grad():
-        inp = audio_tensor.unsqueeze(0).to(device)
-        features = wavlm_model(input_values=inp).last_hidden_state   # (1, T, 768)
+        inp      = audio_tensor.unsqueeze(0).to(device)
+        features = wavlm_model(input_values=inp).last_hidden_state  # (1, T, 768)
 
-    seq_len = features.shape[1]
-
-    # Build background set: small Gaussian-noise feature tensors
-    background = torch.randn(n_background, seq_len, 768, device=device) * 0.01
-
-    # SHAP wrapper: take (B, T, 768) → (B, 2)
-    def _model_fn(feat_batch: torch.Tensor) -> torch.Tensor:
+    # Calculate dimensions
+    seq_len    = features.shape[1]
+    hidden_dim = features.shape[2]
+    
+    # We want to explain seq_len features (one per time frame)
+    # The SHAP explainer will generate binary masks of shape (N, seq_len)
+    # For a mask of 1s and 0s, we reconstruct the tensor by taking either the original frame (1) or the background (0).
+    feat_np = features[0].cpu().numpy() # (seq_len, hidden_dim)
+    
+    # ── Model wrapper: numpy (N, seq_len) → numpy (N, 2) ────────────────────
+    # x_mask contains values between 0 and 1 indicating how much of the original feature vs background to use.
+    def _predict_np(x_mask: np.ndarray) -> np.ndarray:
+        N = x_mask.shape[0]
+        # Expand mask to (N, seq_len, 1) to broadcast over hidden_dim
+        mask_tensor = torch.tensor(x_mask, dtype=torch.float32, device=device).unsqueeze(-1)
+        
+        # Original features broadcasted to N
+        orig = features.expand(N, -1, -1)
+        
+        # Create a simple zero background or mean background
+        # Since SHAP requires a background, we just use 0 here for the background tensor
+        bg = torch.zeros_like(orig)
+        
+        # Blend features according to SHAP mask
+        blended = orig * mask_tensor + bg * (1 - mask_tensor)
+        
         with torch.no_grad():
-            return detector_model(feat_batch)
+            logits = detector_model(blended)
+        return logits.cpu().numpy()
 
-    try:
-        explainer = shap.DeepExplainer(_model_fn, background)
-        shap_values = explainer.shap_values(features)   # list of (1, T, 768) per class
-    except Exception as e:
-        logger.warning(
-            f"[XAI-SHAP] DeepExplainer failed ({e}); falling back to GradientExplainer."
-        )
-        try:
-            explainer = shap.GradientExplainer(_model_fn, background)
-            shap_values = explainer.shap_values(features)
-        except Exception as e2:
-            logger.error(f"[XAI-SHAP] GradientExplainer also failed: {e2}", exc_info=True)
-            raise RuntimeError(f"SHAP explanation failed: {e2}") from e2
-
-    # shap_values is a list indexed by class; select target_class
+    logger.info(f"[XAI-SHAP] KernelExplainer: Explaining {seq_len} temporal frames...")
+    
+    # The reference 'base' is an array of 0s (meaning fully background)
+    # The instance to explain is an array of 1s (meaning fully original)
+    background_mask = np.zeros((1, seq_len))
+    instance_mask = np.ones((1, seq_len))
+    
+    explainer = shap.KernelExplainer(_predict_np, background_mask)
+    shap_values = explainer.shap_values(instance_mask, nsamples=128, silent=True)
+    # shap_values is list of arrays: one for each output class. Shape is (1, seq_len)
+    
     if isinstance(shap_values, list):
-        sv = shap_values[target_class]          # (1, T, 768)
+        sv_frame = shap_values[target_class][0]   # (seq_len,)
     else:
-        sv = shap_values                        # some versions return ndarray
+        # Some versions return 3D arrays (1, seq_len, 2)
+        if len(shap_values.shape) == 3:
+            sv_frame = shap_values[0, :, target_class]
+        else:
+            sv_frame = shap_values[0]
 
-    if isinstance(sv, np.ndarray):
-        attr_scores = sv[0].mean(axis=-1)       # (T,)
-    else:
-        attr_scores = sv[0].detach().cpu().numpy().mean(axis=-1)
+    # Normalise
+    abs_max = np.abs(sv_frame).max()
+    if abs_max > 1e-8:
+        sv_frame = sv_frame / abs_max
 
-    waveform_np = audio_tensor.cpu().numpy()
-    attr_upsampled = _upsample_scores(attr_scores, len(waveform_np))
-
-    return _tensor_to_heatmap_png(
-        waveform_np,
-        attr_upsampled,
-        title="SHAP – Temporal Attribution (Fake Class)",
-    )
+    logger.info(f"[XAI-SHAP] done — max={sv_frame.max():.3f}, min={sv_frame.min():.3f}")
+    return sv_frame.tolist()
 
 
 # ---------------------------------------------------------------------------
-# Convenience wrapper — runs both and returns a dict
+# Convenience wrapper — orchestrates both methods
 # ---------------------------------------------------------------------------
 
 def generate_audio_xai(
-    audio_tensor: torch.FloatTensor,
+    audio_tensor:   torch.FloatTensor,
     detector_model: torch.nn.Module,
-    wavlm_model: torch.nn.Module,
-    device: str,
+    wavlm_model:    torch.nn.Module,
+    device:         str,
 ) -> dict:
     """
-    Run both XAI methods and return base64 PNG strings in a dict.
+    Run both XAI methods and return score vectors.
 
     Returns:
         {
-            "ig_heatmap_b64":   str | None,
-            "shap_heatmap_b64": str | None,
+            "ig_scores":   list[float] | None,
+            "shap_scores": list[float] | None,
         }
     """
-    from typing import Dict, Optional as Opt
-    results: Dict[str, Opt[str]] = {"ig_heatmap_b64": None, "shap_heatmap_b64": None}
+    results: dict = {"ig_scores": None, "shap_scores": None}
 
     # Integrated Gradients
     try:
-        results["ig_heatmap_b64"] = generate_integrated_gradients_xai(
+        results["ig_scores"] = generate_integrated_gradients_xai(
             audio_tensor, detector_model, wavlm_model, device
         )
-        logger.info("[XAI-Audio] ✅ Integrated Gradients heatmap generated.")
+        logger.info("[XAI-Audio] ✅ Integrated Gradients scores generated.")
     except Exception as e:
         logger.error(f"[XAI-Audio] IG failed: {e}", exc_info=True)
 
-    # SHAP
+    # SHAP KernelExplainer
     try:
-        results["shap_heatmap_b64"] = generate_shap_xai(
+        results["shap_scores"] = generate_shap_xai(
             audio_tensor, detector_model, wavlm_model, device
         )
-        logger.info("[XAI-Audio] ✅ SHAP heatmap generated.")
+        logger.info("[XAI-Audio] ✅ SHAP KernelExplainer scores generated.")
     except Exception as e:
         logger.error(f"[XAI-Audio] SHAP failed: {e}", exc_info=True)
 

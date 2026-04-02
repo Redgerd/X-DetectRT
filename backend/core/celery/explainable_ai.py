@@ -27,7 +27,7 @@ import redis
 from config import settings
 from .celery_app import celery_app
 
-from services.explaination.explaination import run_xai
+from services.explaination.pipeline import run_xai
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +126,7 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
             try:
                 # ── Run all 7 XAI techniques ──────────────────────────────
                 technique_results = run_xai(
+                    media_type="image",
                     b64_image=frame_b64,
                     frame_probs=all_frame_probs,   # temporal context for SHAP
                     frame_tensors=None,            # tensors not stored; probs suffice

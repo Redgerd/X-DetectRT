@@ -26,8 +26,10 @@ logger = logging.getLogger(__name__)
 WAVLM_HF_ID = "microsoft/wavlm-base-plus"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Classifier lives at <repo_root>/ASVspoof/audio_deepfake_classifier.pt
+# Path from services/audio/ → ../../.. → repo root → ASVspoof/
 CLASSIFIER_PATH = os.path.abspath(
-    os.path.join(BASE_DIR, "..", "..", "ml_models", "audio_deepfake_classifier.pt")
+    os.path.join(BASE_DIR, "..", "..", "..", "ASVspoof", "audio_deepfake_classifier.pt")
 )
 
 # --------------------------------------------------
@@ -37,6 +39,7 @@ _WAVLM_MODEL = None
 _WAVLM_PROCESSOR = None
 _DETECTOR_MODEL = None
 _AUDIO_DEVICE = None
+_AUDIO_THRESHOLD = 0.5   # overwritten from checkpoint EER calibration
 
 
 # ==================================================
@@ -53,10 +56,12 @@ class DeepFakeDetector(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(768, 128)
+        self.proj = nn.Linear(768, 128)
+        self.norm1 = nn.LayerNorm(128)
+        self.attn = nn.MultiheadAttention(embed_dim=128, num_heads=4, batch_first=False)
+        self.norm2 = nn.LayerNorm(128)
+        self.fc_out = nn.Linear(128, 2)
         self.relu = nn.ReLU()
-        self.attention = nn.MultiheadAttention(embed_dim=128, num_heads=4, batch_first=False)
-        self.fc_final = nn.Linear(128, 2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -65,11 +70,21 @@ class DeepFakeDetector(nn.Module):
         Returns:
             Logits of shape (batch, 2)
         """
-        x = self.relu(self.fc1(x))              # (B, T, 128)
-        x = x.permute(1, 0, 2)                  # (T, B, 128) — required by nn.MultiheadAttention
-        attn_out, _ = self.attention(x, x, x)   # (T, B, 128)
-        x = attn_out.mean(dim=0)                 # global avg pool → (B, 128)
-        return self.fc_final(x)                  # (B, 2)
+        # Linear projection mapped down to 128 dim with activation!
+        x = self.relu(self.proj(x))             # (B, T, 128)
+        x = x.permute(1, 0, 2)                  # (T, B, 128)
+
+        # Standard Pre-Norm Attention block
+        x_norm = self.norm1(x)
+        attn_out, _ = self.attn(x_norm, x_norm, x_norm)
+        x = x + attn_out                        # residual connection
+
+        # Global average pool over T
+        x = x.mean(dim=0)                       # (B, 128)
+        
+        # Final layer norm & classification
+        x = self.norm2(x)
+        return self.fc_out(x)                   # (B, 2)
 
 
 # ==================================================
@@ -89,7 +104,7 @@ def load_audio_models(device: Optional[str] = None):
     Returns:
         tuple: (wavlm_model, wavlm_processor, detector_model)
     """
-    global _WAVLM_MODEL, _WAVLM_PROCESSOR, _DETECTOR_MODEL, _AUDIO_DEVICE
+    global _WAVLM_MODEL, _WAVLM_PROCESSOR, _DETECTOR_MODEL, _AUDIO_DEVICE, _AUDIO_THRESHOLD
 
     if _WAVLM_MODEL is not None:
         return _WAVLM_MODEL, _WAVLM_PROCESSOR, _DETECTOR_MODEL
@@ -102,10 +117,10 @@ def load_audio_models(device: Optional[str] = None):
     # Module A: WavLM Base+ (frozen feature extractor)
     # --------------------------------------------------
     try:
-        from transformers import WavLMModel, Wav2Vec2Processor
+        from transformers import WavLMModel, Wav2Vec2FeatureExtractor
         logger.info(f"[AudioModel] Loading WavLM Base+ from HuggingFace ({WAVLM_HF_ID}) …")
         wavlm = WavLMModel.from_pretrained(WAVLM_HF_ID)
-        processor = Wav2Vec2Processor.from_pretrained(WAVLM_HF_ID)
+        processor = Wav2Vec2FeatureExtractor.from_pretrained(WAVLM_HF_ID)
         wavlm.to(device)
         wavlm.eval()
         # Freeze all parameters — we never retrain WavLM
@@ -123,8 +138,18 @@ def load_audio_models(device: Optional[str] = None):
 
     if os.path.isfile(CLASSIFIER_PATH):
         try:
-            state = torch.load(CLASSIFIER_PATH, map_location=device)
-            detector.load_state_dict(state)
+            ckpt = torch.load(CLASSIFIER_PATH, map_location=device)
+            
+            # READ checkpoint format: {'model': state_dict, 'threshold': eer_threshold}
+            if isinstance(ckpt, dict) and "model" in ckpt:
+                state_dict = ckpt["model"]
+                if "threshold" in ckpt:
+                    _AUDIO_THRESHOLD = float(ckpt["threshold"])
+                    logger.info(f"[AudioModel] ✅ EER threshold loaded: {_AUDIO_THRESHOLD:.4f}")
+            else:
+                state_dict = ckpt
+                
+            detector.load_state_dict(state_dict)
             logger.info(f"[AudioModel] ✅ Classifier loaded from {CLASSIFIER_PATH}")
         except Exception as e:
             logger.error(

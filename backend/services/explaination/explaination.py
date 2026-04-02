@@ -290,57 +290,328 @@ def generate_ela(original_pil: Image.Image, quality: int = 90, amplify: int = 20
 
 
 # ---------------------------------------------------------------------------
-# 2D Fast Fourier Transform (FFT) frequency-domain map
+# 2D FFT Power Spectrum – graph data for frontend rendering
 # ---------------------------------------------------------------------------
 
-def generate_fft(original_pil: Image.Image) -> str:
+def generate_fft(original_pil: Image.Image, radial_bins: int = 128) -> dict:
     """
-    Generate a 2-D FFT magnitude spectrum visualisation.
+    Compute the 2-D FFT power spectrum and return structured data for
+    frontend graph rendering (e.g. Recharts, Chart.js, D3).
 
-    Deepfake generators (GANs, diffusion models) introduce characteristic
-    periodic artefacts in the frequency domain that are invisible in the
-    spatial domain.  The log-magnitude spectrum exposes these as bright
-    spots or grid patterns away from the DC component (centre).
+    Two complementary series are returned:
+
+    1. ``radial_profile``  – Rotational average of log-power vs spatial
+       frequency (cycles / pixel).  This is the primary line chart series.
+       Deepfake generators produce a characteristic bump or plateau at
+       mid-to-high frequencies compared to authentic images.
+
+    2. ``quadrant_energy`` – Total log-power split into four named
+       frequency bands (DC, low, mid, high).  Useful as a bar / radar
+       chart alongside the radial profile.
 
     Args:
         original_pil: The raw PIL image.
+        radial_bins:  Number of frequency bins for the radial profile
+                      (default 128).  Reduce for smoother curves, increase
+                      for finer resolution.
 
     Returns:
-        base64-encoded JPEG string of the FFT spectrum overlaid on the
-        original image (spectrum on the right half for comparison).
+        Dict with the following keys:
+
+        ``radial_profile`` : list of dicts
+            ``{ "frequency": float,   # cycles per pixel  (0.0 – 0.5)
+                "log_power": float }``  # mean log(1 + magnitude²) in bin
+
+        ``quadrant_energy`` : dict
+            ``{ "dc":   float,   # single DC bin (centre pixel)
+                "low":  float,   # 0 < r <= 0.1  (coarse structure)
+                "mid":  float,   # 0.1 < r <= 0.3 (texture / edges)
+                "high": float }``# 0.3 < r <= 0.5 (fine detail / noise)
+
+        ``peak_frequency`` : float
+            Spatial frequency (cycles/pixel) of the highest-power bin
+            outside the DC component.  Spikes here indicate periodic GAN
+            artefacts.
+
+        ``stats`` : dict
+            ``{ "mean_log_power": float,
+                "std_log_power":  float,
+                "max_log_power":  float,
+                "high_freq_ratio": float }``  # high-band energy / total
     """
     try:
-        img_rgb = original_pil.convert("RGB")
-        img_gray = np.array(img_rgb.convert("L"), dtype=np.float32)
+        img_gray = np.array(original_pil.convert("L"), dtype=np.float32)
+        h, w = img_gray.shape
 
-        # 2D FFT → shift DC to centre → log magnitude
+        # 2D FFT → shift DC to centre → power spectrum
         f_transform = np.fft.fft2(img_gray)
-        f_shifted = np.fft.fftshift(f_transform)
-        magnitude = np.abs(f_shifted)
+        f_shifted   = np.fft.fftshift(f_transform)
+        power       = np.abs(f_shifted) ** 2
+        log_power   = np.log1p(power)
 
-        # Log scale to compress the dynamic range
-        log_magnitude = np.log1p(magnitude)
+        # ── Build normalised frequency coordinate grid ────────────────────
+        # Each pixel's distance from centre expressed in cycles/pixel [0, 0.5]
+        cy, cx = h // 2, w // 2
+        ys = (np.arange(h) - cy) / h          # fractional freq along y
+        xs = (np.arange(w) - cx) / w          # fractional freq along x
+        XX, YY = np.meshgrid(xs, ys)
+        radius = np.sqrt(XX ** 2 + YY ** 2)   # cycles/pixel, max ≈ 0.707
 
-        # Normalise to [0, 255]
-        log_min, log_max = log_magnitude.min(), log_magnitude.max()
-        if log_max - log_min > 1e-8:
-            spectrum_norm = ((log_magnitude - log_min) / (log_max - log_min) * 255).astype(np.uint8)
+        # ── Radial profile ────────────────────────────────────────────────
+        max_freq   = 0.5                       # Nyquist limit
+        bin_edges  = np.linspace(0.0, max_freq, radial_bins + 1)
+        bin_centres = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+
+        radial_profile = []
+        for i in range(radial_bins):
+            mask = (radius >= bin_edges[i]) & (radius < bin_edges[i + 1])
+            mean_lp = float(log_power[mask].mean()) if mask.any() else 0.0
+            radial_profile.append({
+                "frequency": round(float(bin_centres[i]), 6),
+                "log_power": round(mean_lp, 6),
+            })
+
+        # ── Quadrant energy bands ─────────────────────────────────────────
+        def _band_energy(r_min: float, r_max: float) -> float:
+            mask = (radius > r_min) & (radius <= r_max)
+            return round(float(log_power[mask].sum()), 4) if mask.any() else 0.0
+
+        dc_val  = round(float(log_power[cy, cx]), 4)
+        low_e   = _band_energy(0.0,  0.1)
+        mid_e   = _band_energy(0.1,  0.3)
+        high_e  = _band_energy(0.3,  0.5)
+        total_e = low_e + mid_e + high_e or 1.0   # avoid div-by-zero
+
+        quadrant_energy = {
+            "dc":   dc_val,
+            "low":  low_e,
+            "mid":  mid_e,
+            "high": high_e,
+        }
+
+        # ── Peak frequency (exclude DC bin) ───────────────────────────────
+        non_dc_mask = radius > (bin_edges[1])   # skip first bin
+        if non_dc_mask.any():
+            peak_idx   = np.argmax(log_power * non_dc_mask)
+            peak_r     = float(radius.flat[peak_idx])
         else:
-            spectrum_norm = np.zeros_like(log_magnitude, dtype=np.uint8)
+            peak_r = 0.0
 
-        # Apply a perceptually distinct colourmap
-        spectrum_colored = cv2.applyColorMap(spectrum_norm, cv2.COLORMAP_INFERNO)   # BGR
+        # ── Summary statistics ────────────────────────────────────────────
+        flat_lp = log_power.flatten()
+        stats = {
+            "mean_log_power":  round(float(flat_lp.mean()), 6),
+            "std_log_power":   round(float(flat_lp.std()),  6),
+            "max_log_power":   round(float(flat_lp.max()),  6),
+            "high_freq_ratio": round(high_e / total_e, 6),
+        }
 
-        # Resize spectrum to match original dimensions
-        orig_w, orig_h = img_rgb.size
-        spectrum_resized = cv2.resize(spectrum_colored, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
-
-        # Side-by-side: original (left) | spectrum (right)
-        original_bgr = cv2.cvtColor(np.array(img_rgb), cv2.COLOR_RGB2BGR)
-        side_by_side = np.concatenate([original_bgr, spectrum_resized], axis=1)
-
-        return _numpy_bgr_to_base64(side_by_side)
+        return {
+            "radial_profile":   radial_profile,   # → line chart
+            "quadrant_energy":  quadrant_energy,  # → bar / radar chart
+            "peak_frequency":   round(peak_r, 6),
+            "stats":            stats,
+        }
 
     except Exception as e:
         logger.error(f"[XAI] FFT generation failed: {e}", exc_info=True)
-        return _pil_to_base64(original_pil.convert("RGB"))
+        return {
+            "radial_profile":  [],
+            "quadrant_energy": {"dc": 0.0, "low": 0.0, "mid": 0.0, "high": 0.0},
+            "peak_frequency":  0.0,
+            "stats":           {"mean_log_power": 0.0, "std_log_power": 0.0,
+                                 "max_log_power": 0.0, "high_freq_ratio": 0.0},
+            "error":           str(e),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Lightweight LIME – superpixel attribution for frontend bar chart
+# ---------------------------------------------------------------------------
+
+def generate_lime(
+    model,
+    original_pil: Image.Image,
+    device: str = "cpu",
+    n_superpixels: int = 30,
+    n_samples: int = 64,
+    batch_size: int = 16,
+) -> dict:
+    """
+    Run a lightweight LIME explanation on a single frame using SLIC
+    superpixels as interpretable features.
+
+    Each superpixel is independently masked (set to its region mean colour)
+    across ``n_samples`` random binary coalition vectors.  A weighted linear
+    ridge regression is fitted on the resulting fake-probability scores to
+    derive per-superpixel importance weights — no third-party LIME library
+    required.
+
+    Args:
+        model:          Loaded GenD model in eval mode.
+        original_pil:   Raw PIL image for the frame.
+        device:         Torch device string matching the model ("cpu"/"cuda").
+        n_superpixels:  Number of SLIC segments (default 30).  Fewer =
+                        faster but coarser; more = slower but finer.
+        n_samples:      Coalition samples to draw (default 64).  Keep
+                        between 50–75 for Celery worker speed.
+        batch_size:     Model inference batch size (default 16).
+
+    Returns:
+        Dict ready for JSON serialisation:
+
+        ``features`` : list of dicts  →  bar chart series
+            ``{ "superpixel_id": int,      # 0-indexed segment label
+                "importance":    float,    # ridge coefficient (signed)
+                "abs_importance": float,   # |importance| for sorting
+                "direction":     str }``   # "fake" | "real" | "neutral"
+
+        ``baseline_fake_prob`` : float
+            Model fake probability on the unmasked original image.
+
+        ``top_fake_superpixels``  : list[int]   # IDs pushing toward fake
+        ``top_real_superpixels``  : list[int]   # IDs pushing toward real
+
+        ``stats`` : dict
+            ``{ "n_superpixels": int, "n_samples": int,
+                "r2_score": float }``   # linear fit quality [0, 1]
+    """
+    try:
+        import torch
+        from skimage.segmentation import slic
+        from skimage.util import img_as_float
+
+        img_rgb  = np.array(original_pil.convert("RGB"))
+        img_float = img_as_float(img_rgb)
+
+        # ── 1. SLIC superpixel segmentation ───────────────────────────────
+        segments = slic(
+            img_float,
+            n_segments=n_superpixels,
+            compactness=10,
+            sigma=1,
+            start_label=0,
+        )
+        unique_segments = np.unique(segments)
+        n_segs = len(unique_segments)
+
+        # Precompute mean colour of each superpixel for masking
+        seg_means = {}
+        for seg_id in unique_segments:
+            mask = segments == seg_id
+            seg_means[seg_id] = img_rgb[mask].mean(axis=0).astype(np.uint8)
+
+        # ── 2. Baseline probability on unmasked image ─────────────────────
+        def _infer_pil(pil_img: Image.Image) -> float:
+            """Run model on a PIL image, return fake probability."""
+            tensor = model.feature_extractor.preprocess(pil_img).unsqueeze(0).to(device)
+            with torch.no_grad():
+                logits = model(tensor)
+                probs  = torch.softmax(logits, dim=-1)
+            return float(probs[0, 1].item())   # index 1 = Fake
+
+        baseline_prob = _infer_pil(original_pil)
+
+        # ── 3. Random coalition sampling ──────────────────────────────────
+        # Each row is a binary vector over superpixels (1 = keep, 0 = mask)
+        rng         = np.random.default_rng(seed=42)
+        coalitions  = rng.integers(0, 2, size=(n_samples, n_segs), dtype=np.uint8)
+
+        # Distance-based sample weights: prefer coalitions close to "all on"
+        # (mimics LIME's proximity kernel)
+        distances   = np.sum(coalitions == 0, axis=1) / n_segs   # fraction masked
+        kernel_width = 0.25
+        weights     = np.exp(-(distances ** 2) / (kernel_width ** 2))
+
+        # ── 4. Batched model inference on masked images ───────────────────
+        scores = np.zeros(n_samples, dtype=np.float32)
+
+        for batch_start in range(0, n_samples, batch_size):
+            batch_coalitions = coalitions[batch_start: batch_start + batch_size]
+            batch_tensors    = []
+
+            for coalition_vec in batch_coalitions:
+                # Build masked image
+                masked = img_rgb.copy()
+                for idx, seg_id in enumerate(unique_segments):
+                    if coalition_vec[idx] == 0:
+                        seg_mask = segments == seg_id
+                        masked[seg_mask] = seg_means[seg_id]
+
+                pil_masked = Image.fromarray(masked)
+                tensor     = model.feature_extractor.preprocess(pil_masked).to(device)
+                batch_tensors.append(tensor)
+
+            batch_input = torch.stack(batch_tensors, dim=0)          # (B, C, H, W)
+            with torch.no_grad():
+                logits = model(batch_input)
+                probs  = torch.softmax(logits, dim=-1)[:, 1]         # fake probs
+            scores[batch_start: batch_start + len(batch_coalitions)] = probs.cpu().numpy()
+
+        # ── 5. Weighted ridge regression → importance weights ─────────────
+        # Design matrix X: (n_samples, n_segs), target y: fake prob scores
+        X = coalitions.astype(np.float32)
+        y = scores
+
+        # Weighted ridge regression in closed form:
+        # β = (XᵀWX + λI)⁻¹ XᵀWy
+        W      = np.diag(weights.astype(np.float32))
+        lambda_ = 1e-3
+        XtW    = X.T @ W
+        XtWX   = XtW @ X
+        XtWy   = XtW @ y
+        ridge  = XtWX + lambda_ * np.eye(n_segs, dtype=np.float32)
+        coeffs = np.linalg.solve(ridge, XtWy)                        # (n_segs,)
+
+        # ── 6. R² score for fit quality ───────────────────────────────────
+        y_pred  = X @ coeffs
+        ss_res  = float(np.sum(weights * (y - y_pred) ** 2))
+        ss_tot  = float(np.sum(weights * (y - np.average(y, weights=weights)) ** 2))
+        r2      = round(1.0 - ss_res / ss_tot if ss_tot > 1e-8 else 0.0, 4)
+
+        # ── 7. Build output feature list ──────────────────────────────────
+        features = []
+        for idx, seg_id in enumerate(unique_segments):
+            imp = float(coeffs[idx])
+            if imp > 0.01:
+                direction = "fake"
+            elif imp < -0.01:
+                direction = "real"
+            else:
+                direction = "neutral"
+
+            features.append({
+                "superpixel_id":  int(seg_id),
+                "importance":     round(imp, 6),
+                "abs_importance": round(abs(imp), 6),
+                "direction":      direction,
+            })
+
+        # Sort by absolute importance descending for the bar chart
+        features.sort(key=lambda f: f["abs_importance"], reverse=True)
+
+        top_fake = [f["superpixel_id"] for f in features if f["direction"] == "fake"][:5]
+        top_real = [f["superpixel_id"] for f in features if f["direction"] == "real"][:5]
+
+        return {
+            "features":             features,           # → bar chart
+            "baseline_fake_prob":   round(baseline_prob, 6),
+            "top_fake_superpixels": top_fake,
+            "top_real_superpixels": top_real,
+            "stats": {
+                "n_superpixels": n_segs,
+                "n_samples":     n_samples,
+                "r2_score":      r2,
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"[XAI] LIME generation failed: {e}", exc_info=True)
+        return {
+            "features":             [],
+            "baseline_fake_prob":   0.0,
+            "top_fake_superpixels": [],
+            "top_real_superpixels": [],
+            "stats": {"n_superpixels": 0, "n_samples": 0, "r2_score": 0.0},
+            "error": str(e),
+        }

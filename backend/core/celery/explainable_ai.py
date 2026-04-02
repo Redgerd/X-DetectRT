@@ -32,7 +32,7 @@ from core.celery.celery_app import celery_app
 from services.detection.model import load_gend_model, _GEND_DEVICE
 
 # XAI services
-from services.explaination.explaination import generate_gradcam, generate_ela, generate_fft
+from services.explaination.explaination import generate_gradcam, generate_ela, generate_fft, generate_lime
 
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
         Each entry in ``xai_results`` contains:
             - gradcam_b64  : Grad-CAM++ heatmap overlay (base64 JPEG)
             - ela_b64      : ELA heatmap overlay (base64 JPEG)
-            - fft_b64      : 2D FFT spectrum side-by-side (base64 JPEG)
+            - fft_data      : 2D FFT power spectrum as structured graph data (dict)
     """
     logger.info(f"[XAI] Starting XAI generation for task_id={task_id}")
 
@@ -157,9 +157,13 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
 
                 # ── 3. 2D FFT ─────────────────────────────────────────────
                 logger.info(f"[XAI] Generating 2D FFT for frame {frame_index}")
-                fft_b64 = generate_fft(pil_image)
+                fft_data = generate_fft(pil_image)
 
-                # ── Bundle all three and store ─────────────────────────────
+                # ── 4. LIME superpixel attribution ────────────────────────
+                logger.info(f"[XAI] Generating LIME for frame {frame_index}")
+                lime_data = generate_lime(model, pil_image, device=device)
+
+                # ── Bundle all four and store ──────────────────────────────
                 xai_entry = {
                     "frame_index":  frame_index,
                     "timestamp":    timestamp,
@@ -171,7 +175,8 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                     # XAI outputs
                     "gradcam_b64":  gradcam_b64,
                     "ela_b64":      ela_b64,
-                    "fft_b64":      fft_b64,
+                    "fft_data":     fft_data,
+                    "lime_data":    lime_data,
                 }
                 xai_results.append(xai_entry)
 
@@ -189,10 +194,11 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                             "real_prob":    real_prob,
                             "confidence":   confidence,
                             "anomaly_type": anomaly_type,
-                            # All three XAI outputs sent together
+                            # All four XAI outputs sent together
                             "gradcam_b64":  gradcam_b64,
                             "ela_b64":      ela_b64,
-                            "fft_b64":      fft_b64,
+                            "fft_data":     fft_data,
+                            "lime_data":    lime_data,
                         })
                     )
                 except Exception as redis_err:
@@ -200,7 +206,7 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
 
                 logger.info(
                     f"[XAI] Frame {frame_index} complete: "
-                    f"Grad-CAM + ELA + FFT generated (anomaly={is_anomaly})"
+                    f"Grad-CAM + ELA + FFT + LIME generated (anomaly={is_anomaly})"
                 )
 
             except SoftTimeLimitExceeded:
@@ -221,7 +227,8 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                     "anomaly_type": anomaly_type,
                     "gradcam_b64":  None,
                     "ela_b64":      None,
-                    "fft_b64":      None,
+                    "fft_data":     None,
+                    "lime_data":    None,
                     "error":        str(frame_err),
                     "message":      "XAI generation failed for this frame",
                 })
@@ -232,7 +239,8 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
         # -----------------------------------------------------------------
         total_explained = sum(
             1 for r in xai_results
-            if r.get("gradcam_b64") and r.get("ela_b64") and r.get("fft_b64")
+            if r.get("gradcam_b64") and r.get("ela_b64")
+            and r.get("fft_data") is not None and r.get("lime_data") is not None
         )
         total_failed = sum(1 for r in xai_results if "error" in r)
 
@@ -240,7 +248,7 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
             "task_id":               task_id,
             "message": (
                 f"XAI generation complete: {total_explained} frames fully explained "
-                f"(Grad-CAM + ELA + FFT), {total_failed} failed"
+                f"(Grad-CAM + ELA + FFT + LIME), {total_failed} failed"
             ),
             "total_frames":           len(detection_results),
             "total_frames_explained": total_explained,

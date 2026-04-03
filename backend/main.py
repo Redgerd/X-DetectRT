@@ -99,7 +99,7 @@ async def startup_db_check():
             ("skimage",          "scikit-image",            True),
             ("yaml",             "PyYAML",                  True),
             ("shap",             "shap",                    True),
-            # ("timeshap",         "timeshap",                True),
+            ("timeshap",         "timeshap",                True),
             ("transformers",     "transformers",            True),
             ("timm",             "timm",                    True),
             ("mediapipe",        "mediapipe",               False),  # optional — graceful fallback

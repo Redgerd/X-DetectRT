@@ -1,28 +1,40 @@
 # backend/services/audio/audio_utils.py
-
 """
-Audio preprocessing utilities for the READ pipeline.
+Audio preprocessing utilities for the X-DetectRT pipeline.
+
 - Resamples to 16 kHz (required by WavLM Base+)
 - Pads / trims to exactly 64,600 samples (~4 seconds)
-- Generates a base64 waveform PNG for frontend display
+- Downsamples waveform to a compact array for Canvas rendering
+- Computes STFT power spectrogram matrix for the 3-layer Canvas spectrogram
 """
 
 import io
-import base64
 import logging
 import numpy as np
 import torch
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-# WavLM requires 16 kHz mono audio; 64,600 ≈ 4.0375 s
-TARGET_SR = 16_000
+# WavLM requires 16 kHz mono; 64,600 ≈ 4.0375 s
+TARGET_SR   = 16_000
 NUM_SAMPLES = 64_600
 
+# Canvas waveform resolution (must be lightweight for JSON)
+WAVEFORM_CANVAS_POINTS = 2_000
+
+# STFT parameters
+STFT_N_FFT     = 512   # FFT size → 257 frequency bins
+STFT_HOP_LEN   = 256   # hop → ~201 frames for 4 s at 16 kHz
+
+
+# ---------------------------------------------------------------------------
+# Preprocessing — raw bytes → fixed-length tensor
+# ---------------------------------------------------------------------------
 
 def load_and_preprocess_audio(
     file_bytes: bytes,
-    target_sr: int = TARGET_SR,
+    target_sr: int  = TARGET_SR,
     num_samples: int = NUM_SAMPLES,
 ) -> torch.FloatTensor:
     """
@@ -35,8 +47,8 @@ def load_and_preprocess_audio(
         4. Pad (by repeating) or trim to exactly *num_samples*
 
     Args:
-        file_bytes: Raw bytes of the uploaded audio file.
-        target_sr:  Target sample rate (default 16 000 Hz).
+        file_bytes:  Raw bytes of the uploaded audio file.
+        target_sr:   Target sample rate (default 16 000 Hz).
         num_samples: Fixed output length in samples (default 64 600).
 
     Returns:
@@ -44,75 +56,133 @@ def load_and_preprocess_audio(
     """
     try:
         import librosa
-        import soundfile as sf
     except ImportError:
-        raise RuntimeError(
-            "librosa and soundfile are required. "
-            "Run: pip install librosa soundfile"
-        )
+        raise RuntimeError("librosa is required: pip install librosa soundfile")
 
     buf = io.BytesIO(file_bytes)
 
     try:
-        # librosa returns float32 array and the native sample rate
         waveform, sr = librosa.load(buf, sr=None, mono=True)
     except Exception as e:
         logger.error(f"[AudioUtils] librosa.load failed: {e}", exc_info=True)
         raise ValueError(f"Cannot decode audio: {e}") from e
 
-    # Resample if necessary
     if sr != target_sr:
         logger.info(f"[AudioUtils] Resampling from {sr} Hz → {target_sr} Hz")
         waveform = librosa.resample(waveform, orig_sr=sr, target_sr=target_sr)
 
-    # Pad or trim
     length = len(waveform)
     if length < num_samples:
-        # Repeat the clip until long enough, then slice
         repeats = (num_samples // length) + 1
         waveform = np.tile(waveform, repeats)[:num_samples]
-        logger.debug(f"[AudioUtils] Padded {length} → {num_samples} samples")
     elif length > num_samples:
         waveform = waveform[:num_samples]
-        logger.debug(f"[AudioUtils] Trimmed {length} → {num_samples} samples")
 
     return torch.FloatTensor(waveform)
 
 
-def waveform_to_base64_png(
-    audio_tensor: torch.FloatTensor,
-    sample_rate: int = TARGET_SR,
-) -> str:
-    """
-    Render a waveform plot and return it as a base64-encoded PNG string.
+# ---------------------------------------------------------------------------
+# Canvas waveform — compact downsampled array
+# ---------------------------------------------------------------------------
 
-    Args:
-        audio_tensor: 1-D float tensor of audio samples.
-        sample_rate:  Sample rate used to compute the time axis (seconds).
+def downsample_waveform(
+    audio_tensor: torch.FloatTensor,
+    n_points: int = WAVEFORM_CANVAS_POINTS,
+) -> List[float]:
+    """
+    Downsample the full-resolution waveform to *n_points* for Canvas rendering.
+
+    Uses chunk-max (per block take the max absolute value, preserving sign of
+    the dominant sample) so that the envelope shape is faithfully represented.
 
     Returns:
-        Base64-encoded PNG string (no data-URI prefix).
+        List of floats in [-1.0, 1.0] with length *n_points*.
+    """
+    wv = audio_tensor.numpy()
+    total = len(wv)
+    block = max(total // n_points, 1)
+    out: List[float] = []
+    for i in range(n_points):
+        start = i * block
+        end   = min(start + block, total)
+        chunk = wv[start:end]
+        if len(chunk) == 0:
+            out.append(0.0)
+        else:
+            idx = int(np.argmax(np.abs(chunk)))
+            out.append(float(chunk[idx]))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# STFT spectrogram matrix
+# ---------------------------------------------------------------------------
+
+def compute_stft_matrix(
+    audio_tensor: torch.FloatTensor,
+    sample_rate: int = TARGET_SR,
+    n_fft: int       = STFT_N_FFT,
+    hop_length: int  = STFT_HOP_LEN,
+) -> Dict[str, object]:
+    """
+    Compute a power spectrogram (in dB) from the audio tensor.
+
+    The result is returned as plain Python lists so it can be JSON-serialised
+    directly by FastAPI without any intermediate numpy conversion.
+
+    Args:
+        audio_tensor: 1-D float tensor of audio samples at *sample_rate* Hz.
+        sample_rate:  Audio sample rate (Hz).
+        n_fft:        FFT window size.
+        hop_length:   Hop size between frames.
+
+    Returns:
+        dict with keys:
+            "matrix"  — 2-D list [freq_bins][time_frames] of dB values (float32)
+            "times"   — 1-D list of time positions (seconds) for each frame
+            "freqs"   — 1-D list of frequency values (Hz) for each bin
+            "db_min"  — global dB minimum (for frontend colormap normalisation)
+            "db_max"  — global dB maximum
     """
     try:
-        import matplotlib
-        matplotlib.use("Agg")          # non-interactive backend
-        import matplotlib.pyplot as plt
+        import librosa
     except ImportError:
-        raise RuntimeError("matplotlib is required. Run: pip install matplotlib")
+        raise RuntimeError("librosa is required: pip install librosa")
 
-    waveform = audio_tensor.numpy()
-    times = np.linspace(0, len(waveform) / sample_rate, num=len(waveform))
+    wv = audio_tensor.numpy()
 
-    fig, ax = plt.subplots(figsize=(10, 2), dpi=100)
-    ax.plot(times, waveform, color="#4A90E2", linewidth=0.5, alpha=0.9)
-    ax.set_xlabel("Time (s)", fontsize=8)
-    ax.set_ylabel("Amplitude", fontsize=8)
-    ax.set_title("Audio Waveform", fontsize=9)
-    ax.set_xlim(0, times[-1])
-    fig.tight_layout()
+    # Compute magnitude spectrogram
+    stft = librosa.stft(wv, n_fft=n_fft, hop_length=hop_length)
+    mag  = np.abs(stft)                           # (n_fft//2 + 1, T)
 
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
+    # Convert to dB with a floor to avoid log(0)
+    mag_db = librosa.amplitude_to_db(mag, ref=np.max)  # (F, T), max → 0 dB
+
+    freq_bins, time_frames = mag_db.shape
+
+    # Time and frequency axes
+    times = librosa.frames_to_time(
+        np.arange(time_frames), sr=sample_rate, hop_length=hop_length
+    ).tolist()
+    freqs = librosa.fft_frequencies(sr=sample_rate, n_fft=n_fft).tolist()
+
+    db_min = float(mag_db.min())
+    db_max = float(mag_db.max())
+
+    # Serialise — truncate to top 128 freq bins (0–8 kHz) for compactness
+    MAX_FREQ_BINS = 128
+    matrix_2d = mag_db[:MAX_FREQ_BINS, :].tolist()
+    freqs_out  = freqs[:MAX_FREQ_BINS]
+
+    logger.debug(
+        f"[AudioUtils] STFT shape=({MAX_FREQ_BINS}, {time_frames}), "
+        f"db_min={db_min:.1f}, db_max={db_max:.1f}"
+    )
+
+    return {
+        "matrix": matrix_2d,
+        "times":  times,
+        "freqs":  freqs_out,
+        "db_min": db_min,
+        "db_max": db_max,
+    }

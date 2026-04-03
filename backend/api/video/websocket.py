@@ -433,13 +433,13 @@ async def websocket_task(ws: WebSocket):
                 
                 logger.info(f"Sent image to detection worker for task: {task_id}")
                 
-                # Wait for both detection AND XAI results before closing
+                # Wait for both detection AND XAI results before closing (event-driven)
                 image_results = await wait_for_image_results(
                     ws=ws,
                     task_id=task_id,
                     detection_task=detection_task,
-                    detection_timeout=60,
-                    xai_timeout=60
+                    detection_timeout=300,  # Long timeout for event-driven waiting
+                    xai_timeout=300
                 )
 
                 detection_result = image_results.get("detection")

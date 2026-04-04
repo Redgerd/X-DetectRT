@@ -26,7 +26,7 @@ def login(user_credentials: UserLoginSchema, db: Session = Depends(get_db)):
         )
 
     # Generate a token with role-based expiry
-    token = create_access_token(user.id, user.username, False)
+    token = create_access_token(user.id, user.username, user.role.value == "admin")
 
     return {"access_token": token, "token_type": "bearer"}
 
@@ -95,7 +95,7 @@ def google_login(payload: GoogleAuthSchema, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
     
-    token = create_access_token(user.id, user.username, False)
+    token = create_access_token(user.id, user.username, user.role.value == "admin")
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -118,7 +118,7 @@ def firebase_register(payload: GoogleAuthSchema, db: Session = Depends(get_db)):
     
     if existing_user:
         # User already exists, return token
-        token = create_access_token(existing_user.id, existing_user.username, False)
+        token = create_access_token(existing_user.id, existing_user.username, existing_user.role.value == "admin")
         return {"access_token": token, "token_type": "bearer"}
     
     # Create new user
@@ -131,7 +131,7 @@ def firebase_register(payload: GoogleAuthSchema, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     
-    token = create_access_token(user.id, user.username, False)
+    token = create_access_token(user.id, user.username, user.role.value == "admin")
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -160,7 +160,7 @@ def firebase_login(payload: GoogleAuthSchema, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
     
-    token = create_access_token(user.id, user.username, False)
+    token = create_access_token(user.id, user.username, user.role.value == "admin")
     return {"access_token": token, "token_type": "bearer"}
 
 

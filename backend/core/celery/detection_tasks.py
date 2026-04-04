@@ -101,7 +101,7 @@ def run_gend_inference(self, task_id: str, frame_data: str, frame_index: int = 0
                     confidence=round(confidence, 2),
                     real_prob=round(real_prob, 4),
                     fake_prob=round(fake_prob, 4),
-                    anomaly_type=anomaly_type
+                    anomaly_type='GenD Deepfake'
                 )
                 db.add(detection)
                 db.commit()

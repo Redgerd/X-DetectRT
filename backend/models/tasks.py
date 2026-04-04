@@ -2,6 +2,7 @@ import enum
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Float, Enum, ForeignKey
 from models.base import Base
+from sqlalchemy.orm import relationship
 
 class TaskStatus(enum.Enum):
     pending = "pending"
@@ -21,3 +22,6 @@ class VideoAnalysisTask(Base):
     completed_at = Column(DateTime, nullable=True)
     faces_detected_frames = Column(Integer, default=0)
     frames_skipped = Column(Integer, default=0)
+
+    # Relationship to Users
+    user = relationship("Users", back_populates="tasks")

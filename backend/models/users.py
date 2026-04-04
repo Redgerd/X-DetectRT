@@ -20,3 +20,6 @@ class Users(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     profile_url = Column(String, nullable=True)
 
+    # Relationship to VideoAnalysisTask
+    tasks = relationship("VideoAnalysisTask", back_populates="user")
+

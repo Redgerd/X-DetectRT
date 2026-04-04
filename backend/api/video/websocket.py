@@ -16,6 +16,10 @@ from config import settings
 from PIL import Image
 from tensorflow.keras.applications.inception_v3 import preprocess_input
 from typing import Optional, Callable, Any
+from models import VideoAnalysisTask
+from models.tasks import TaskStatus
+from core.database import SessionLocal
+from datetime import datetime
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -280,6 +284,10 @@ async def websocket_task(ws: WebSocket):
             task_id = data.get("task_id", "").strip()
             video_duration = data.get("video_duration", None)
             file_type = data.get("file_type", "video")  # 'video' or 'image'
+            user_id = data.get("user_id")
+            if not user_id:
+                await safe_send_json(ws, {"type": "error", "message": "user_id is required"})
+                return
         except JSONDecodeError:
             # Fall back to old format (just task_id)
             task_id = msg.strip()
@@ -298,10 +306,30 @@ async def websocket_task(ws: WebSocket):
                 return
             
             try:
+                # Create task record in database
+                db = SessionLocal()
+                try:
+                    task = VideoAnalysisTask(
+                        task_id=task_id,
+                        user_id=user_id,
+                        video_path=file_path,
+                        status=TaskStatus.processing
+                    )
+                    db.add(task)
+                    db.commit()
+                    db.refresh(task)
+                except Exception as e:
+                    logger.error(f"Error creating task: {e}")
+                    db.rollback()
+                    await safe_send_json(ws, {"type": "error", "message": "Failed to create task"})
+                    return
+                finally:
+                    db.close()
+
                 # Send processing status
                 if not await safe_send_text(ws, "Processing image..."):
                     return
-                
+
                 # Load and process the image directly
                 img = cv2.imread(file_path)
                 if img is None:
@@ -342,6 +370,20 @@ async def websocket_task(ws: WebSocket):
                     "is_image": True,
                     "detection_result": detection_result
                 })
+
+                # Update task status to completed
+                db = SessionLocal()
+                try:
+                    task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
+                    if task:
+                        task.status = TaskStatus.completed
+                        task.completed_at = datetime.utcnow()
+                        db.commit()
+                except Exception as e:
+                    logger.error(f"Error updating task: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
                 
             except Exception as e:
                 logger.error(f"Error in image processing: {e}", exc_info=True)
@@ -358,7 +400,27 @@ async def websocket_task(ws: WebSocket):
                 return
             
             logger.info(f"Starting frame extraction for task: {task_id}")
-            
+
+            # Create task record in database
+            db = SessionLocal()
+            try:
+                task = VideoAnalysisTask(
+                    task_id=task_id,
+                    user_id=user_id,
+                    video_path=file_path,
+                    status=TaskStatus.processing
+                )
+                db.add(task)
+                db.commit()
+                db.refresh(task)
+            except Exception as e:
+                logger.error(f"Error creating task: {e}")
+                db.rollback()
+                await safe_send_json(ws, {"type": "error", "message": "Failed to create task"})
+                return
+            finally:
+                db.close()
+
             try:
                 # Start the Celery task
                 celery_task = extract_faces_with_optical_flow.delay(
@@ -492,7 +554,23 @@ async def websocket_task(ws: WebSocket):
                 # Get final result
                 result = celery_task.get()
                 logger.info(f"Task completed: {result}")
-                
+
+                # Update task status to completed
+                db = SessionLocal()
+                try:
+                    task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
+                    if task:
+                        task.status = TaskStatus.completed
+                        task.completed_at = datetime.utcnow()
+                        task.faces_detected_frames = result.get("faces_detected_frames", 0)
+                        task.frames_skipped = result.get("frames_skipped", 0)
+                        db.commit()
+                except Exception as e:
+                    logger.error(f"Error updating task: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+
                 # Get detection result
                 detection_result = None
                 if redis_client:

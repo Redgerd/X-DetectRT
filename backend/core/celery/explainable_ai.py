@@ -29,6 +29,9 @@ from core.celery.celery_app import celery_app
 from services.detection.model import load_gend_model, _GEND_DEVICE
 from services.explaination.explaination import generate_gradcam
 
+from models import XAIResult, ProcessedFrame
+from core.database import SessionLocal
+
 logger = logging.getLogger(__name__)
 
 # Redis client for publishing results
@@ -206,8 +209,25 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                 except Exception as redis_err:
                     logger.warning(f"[XAI] Redis publish error for frame {frame_index}: {redis_err}")
                 
+                # Insert XAI result into database
+                db = SessionLocal()
+                try:
+                    frame = db.query(ProcessedFrame).filter_by(task_id=task_id, frame_index=frame_index).first()
+                    if frame:
+                        xai_db = XAIResult(
+                            frame_id=frame.id,
+                            gradcam_b64=gradcam_b64
+                        )
+                        db.add(xai_db)
+                        db.commit()
+                except Exception as e:
+                    logger.warning(f"[XAI] Failed to insert XAI for frame {frame_index}: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+
                 logger.info(f"[XAI] Generated explanations for frame {frame_index} (anomaly={is_anomaly})")
-                
+
             except SoftTimeLimitExceeded:
                 logger.error(f"[XAI] Soft time limit exceeded at frame {frame_index}")
                 break
@@ -228,6 +248,24 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                     "message": "XAI generation failed",
                 }
                 xai_results.append(xai_entry)
+
+                # Insert failed XAI result into database
+                db = SessionLocal()
+                try:
+                    frame = db.query(ProcessedFrame).filter_by(task_id=task_id, frame_index=frame_index).first()
+                    if frame:
+                        xai_db = XAIResult(
+                            frame_id=frame.id,
+                            error=str(frame_err)
+                        )
+                        db.add(xai_db)
+                        db.commit()
+                except Exception as e:
+                    logger.warning(f"[XAI] Failed to insert failed XAI for frame {frame_index}: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+
                 continue
         
         # -----------------------------------------------------------------

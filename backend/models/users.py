@@ -7,6 +7,7 @@ from models.base import Base
 class UserRole(enum.Enum):
     guest = "guest"
     user = "user"
+    admin = "admin"
 
 class Users(Base):
     __tablename__ = 'users'

@@ -16,6 +16,10 @@ from mtcnn import MTCNN  # Face detection
 from PIL import Image     # For resizing and image conversion
 from tensorflow.keras.applications.inception_v3 import preprocess_input
 import os
+from models import ProcessedFrame, VideoAnalysisTask
+from models.tasks import TaskStatus
+from core.database import SessionLocal
+from datetime import datetime
 # Import the GenD detection task from detection_tasks
 from .detection_tasks import run_gend_inference
 
@@ -43,12 +47,14 @@ PADDING = 20
 FLOW_THRESHOLD = 1.2
 
 @shared_task(name="frame_selection_pipeline.run")
-def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=20, video_duration=None):
+def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=15, video_duration=None):
 
     try:
 
         if not task_id:
             task_id = os.path.basename(video_path).replace(".mp4", "")
+
+        db = SessionLocal()
 
         if not os.path.exists(video_path):
             return {"error": "Video not found", "task_id": task_id}
@@ -180,6 +186,24 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=20, vid
 
                     timestamp_str = seconds_to_hhmmss(timestamp_sec)
 
+                    # Insert frame into database
+                    try:
+                        frame_db = ProcessedFrame(
+                            task_id=task_id,
+                            frame_index=processed_count,
+                            timestamp=timestamp_str,
+                            timestamp_seconds=round(timestamp_sec, 3),
+                            frame_data=frame_data_b64,
+                            fps=round(fps, 2),
+                            video_duration=round(total_duration, 2)
+                        )
+                        db.add(frame_db)
+                        db.commit()
+                        db.refresh(frame_db)
+                    except Exception as e:
+                        logger.warning(f"[{task_id}] Failed to insert frame {processed_count}: {e}")
+                        db.rollback()
+
                     # ---------- redis stream ----------
                     redis_client.publish(
                         f"task_frames:{task_id}",
@@ -244,6 +268,21 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=20, vid
             json.dumps(result)
         )
 
+        # Update task status
+        try:
+            task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
+            if task:
+                task.status = TaskStatus.completed
+                task.completed_at = datetime.utcnow()
+                task.faces_detected_frames = processed_count
+                task.frames_skipped = skipped_count
+                db.commit()
+        except Exception as e:
+            logger.warning(f"[{task_id}] Failed to update task: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
         logger.info(
             f"[{task_id}] done | faces={processed_count} skipped={skipped_count}"
         )
@@ -253,6 +292,18 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=20, vid
     except Exception as e:
 
         logger.exception(f"[{task_id}] pipeline crashed: {e}")
+
+        # Update task status to failed
+        try:
+            task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
+            if task:
+                task.status = TaskStatus.failed
+                db.commit()
+        except Exception as update_e:
+            logger.warning(f"[{task_id}] Failed to update task to failed: {update_e}")
+            db.rollback()
+        finally:
+            db.close()
 
         return {
             "error": str(e),

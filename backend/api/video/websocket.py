@@ -10,6 +10,7 @@ import time
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect
 from core.celery.frame_selection import extract_faces_with_optical_flow
 from core.celery.detection_tasks import run_gend_inference
+from core.celery.explainable_ai import run_explainable_ai
 import json
 from json import JSONDecodeError
 import redis
@@ -21,6 +22,12 @@ from models import VideoAnalysisTask
 from models.tasks import TaskStatus
 from core.database import SessionLocal
 from datetime import datetime
+from api.video.frame_collector import (
+    FrameCollector,
+    FrameData,
+    DetectionData,
+    shadow_registry
+)
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -516,6 +523,8 @@ async def websocket_task(ws: WebSocket):
             
             logger.info(f"Starting frame extraction for task: {task_id}")
 
+            frame_collector = await shadow_registry.create(task_id)
+
             # Create task record in database
             db = SessionLocal()
             try:
@@ -585,6 +594,20 @@ async def websocket_task(ws: WebSocket):
                                         timestamp_seconds = data.get('timestamp_seconds', 0.0)
                                         fps = data.get('fps', 30.0)
 
+                                        asyncio.create_task(
+                                            frame_collector.collect_frame(
+                                                FrameData(
+                                                    frame_index=frame_index,
+                                                    frame_data=frame_data,
+                                                    timestamp=timestamp,
+                                                    timestamp_seconds=timestamp_seconds,
+                                                    fps=fps,
+                                                    video_duration=video_duration or 0.0,
+                                                    is_image=False
+                                                )
+                                            )
+                                        )
+
                                         # Send frame and wait for detection result
                                         detection_result = await send_frame_with_detection(
                                             ws=ws,
@@ -614,6 +637,19 @@ async def websocket_task(ws: WebSocket):
                                         # Detection result from spatial detection task
                                         frame_index = data.get('frame_index', 0)
                                         data['is_processed'] = True
+
+                                        asyncio.create_task(
+                                            frame_collector.collect_detection(
+                                                DetectionData(
+                                                    frame_index=frame_index,
+                                                    is_anomaly=data.get('is_anomaly', False),
+                                                    fake_prob=data.get('fake_prob', 0.0),
+                                                    real_prob=data.get('real_prob', 0.0),
+                                                    confidence=data.get('confidence', 0.0),
+                                                    anomaly_type=data.get('anomaly_type')
+                                                )
+                                            )
+                                        )
 
                                         # Count anomalies
                                         if data.get('is_anomaly'):
@@ -684,6 +720,26 @@ async def websocket_task(ws: WebSocket):
                 result = celery_task.get()
                 logger.info(f"Task completed: {result}")
 
+                # Finalize Shadow Frame Collector and dispatch XAI task
+                xai_batch = await frame_collector.finalize()
+                
+                if xai_batch:
+                    logger.info(
+                        f"[ShadowCollection] Dispatching TimeSHAP XAI task for "
+                        f"{len(xai_batch)} frames"
+                    )
+                    
+                    asyncio.create_task(
+                        run_explainable_ai.delay(
+                            task_id=task_id,
+                            frame_results={"results": xai_batch}
+                        )
+                    )
+                else:
+                    logger.warning(
+                        f"[ShadowCollection] No frames collected for XAI task"
+                    )
+
                 # Update task status to completed
                 db = SessionLocal()
                 try:
@@ -732,6 +788,10 @@ async def websocket_task(ws: WebSocket):
                 
                 await safe_send_json(ws, completion_message)
                 
+                # Memory cleanup - clear base64 strings from VRAM/RAM
+                await frame_collector.clear()
+                await shadow_registry.remove(task_id)
+                
             except Exception as e:
                 logger.error(f"Error in frame extraction: {e}", exc_info=True)
                 await safe_send_json(ws, {
@@ -747,5 +807,9 @@ async def websocket_task(ws: WebSocket):
             
     except (WebSocketDisconnect, RuntimeError) as e:
         logger.info(f"WebSocket disconnected during task handling: {e}")
+        if 'task_id' in dir() and task_id:
+            await shadow_registry.remove(task_id)
     except Exception as e:
         logger.error(f"Unexpected error in websocket_task: {e}", exc_info=True)
+        if 'task_id' in dir() and task_id:
+            await shadow_registry.remove(task_id)

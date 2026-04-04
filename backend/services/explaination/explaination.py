@@ -6,6 +6,7 @@ Implements:
     - Grad-CAM++ : Visual heatmaps highlighting suspicious regions.
     - ELA         : Error Level Analysis – JPEG compression artifact map.
     - 2D FFT      : Fast Fourier Transform frequency-domain anomaly map.
+    - LIME        : Superpixel attribution (vectorized, optimized).
 
 Reference: DYP.pdf – "Integrating Dual XAI Techniques" (Step 3)
 """
@@ -426,7 +427,7 @@ def generate_fft(original_pil: Image.Image, radial_bins: int = 128) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Lightweight LIME – superpixel attribution for frontend bar chart
+# Optimized LIME – superpixel attribution for frontend bar chart
 # ---------------------------------------------------------------------------
 
 def generate_lime(
@@ -438,148 +439,163 @@ def generate_lime(
     batch_size: int = 16,
 ) -> dict:
     """
-    Run a lightweight LIME explanation on a single frame using SLIC
-    superpixels as interpretable features.
+    Run a vectorized, optimized LIME explanation on a single frame using
+    SLIC superpixels as interpretable features.
 
-    Each superpixel is independently masked (set to its region mean colour)
-    across ``n_samples`` random binary coalition vectors.  A weighted linear
-    ridge regression is fitted on the resulting fake-probability scores to
-    derive per-superpixel importance weights — no third-party LIME library
-    required.
+    Key optimizations over the naive implementation:
+      1. Segment masks precomputed once as a boolean array (H, W, n_segs).
+      2. Full replacement image precomputed once via label-indexed lookup.
+      3. All n_samples masked images built in a single NumPy broadcast op
+         — no Python loop over superpixels per sample.
+      4. All preprocessing handled in a single batched call; no per-image
+         preprocess inside the inference loop.
+      5. Inference runs in one pass per batch with torch.no_grad() + autocast.
 
     Args:
         model:          Loaded GenD model in eval mode.
         original_pil:   Raw PIL image for the frame.
         device:         Torch device string matching the model ("cpu"/"cuda").
-        n_superpixels:  Number of SLIC segments (default 30).  Fewer =
-                        faster but coarser; more = slower but finer.
-        n_samples:      Coalition samples to draw (default 64).  Keep
-                        between 50–75 for Celery worker speed.
+        n_superpixels:  Number of SLIC segments (default 30).
+        n_samples:      Coalition samples to draw (default 64).
         batch_size:     Model inference batch size (default 16).
 
     Returns:
         Dict ready for JSON serialisation:
 
         ``features`` : list of dicts  →  bar chart series
-            ``{ "superpixel_id": int,      # 0-indexed segment label
-                "importance":    float,    # ridge coefficient (signed)
-                "abs_importance": float,   # |importance| for sorting
+            ``{ "superpixel_id": int,
+                "importance":    float,
+                "abs_importance": float,
                 "direction":     str }``   # "fake" | "real" | "neutral"
 
         ``baseline_fake_prob`` : float
-            Model fake probability on the unmasked original image.
-
-        ``top_fake_superpixels``  : list[int]   # IDs pushing toward fake
-        ``top_real_superpixels``  : list[int]   # IDs pushing toward real
-
+        ``top_fake_superpixels``  : list[int]
+        ``top_real_superpixels``  : list[int]
         ``stats`` : dict
-            ``{ "n_superpixels": int, "n_samples": int,
-                "r2_score": float }``   # linear fit quality [0, 1]
+            ``{ "n_superpixels": int, "n_samples": int, "r2_score": float }``
     """
     try:
         import torch
         from skimage.segmentation import slic
         from skimage.util import img_as_float
 
-        img_rgb  = np.array(original_pil.convert("RGB"))
+        img_rgb   = np.array(original_pil.convert("RGB"), dtype=np.uint8)   # (H, W, 3)
         img_float = img_as_float(img_rgb)
 
-        # ── 1. SLIC superpixel segmentation ───────────────────────────────
+        # ── 1. SLIC segmentation ──────────────────────────────────────────
         segments = slic(
             img_float,
             n_segments=n_superpixels,
             compactness=10,
             sigma=1,
             start_label=0,
-        )
+        )                                                       # (H, W)  int
         unique_segments = np.unique(segments)
-        n_segs = len(unique_segments)
+        n_segs          = len(unique_segments)
 
-        # Precompute mean colour of each superpixel for masking
-        seg_means = {}
-        for seg_id in unique_segments:
-            mask = segments == seg_id
-            seg_means[seg_id] = img_rgb[mask].mean(axis=0).astype(np.uint8)
+        # Re-index segments to 0…n_segs-1 (SLIC may skip labels)
+        remap = np.zeros(unique_segments.max() + 1, dtype=np.int32)
+        for new_id, old_id in enumerate(unique_segments):
+            remap[old_id] = new_id
+        seg_idx = remap[segments]                               # (H, W)  0-based
 
-        # ── 2. Baseline probability on unmasked image ─────────────────────
-        def _infer_pil(pil_img: Image.Image) -> float:
-            """Run model on a PIL image, return fake probability."""
-            tensor = model.feature_extractor.preprocess(pil_img).unsqueeze(0).to(device)
+        # ── 2. Precompute per-superpixel mean colours ─────────────────────
+        # color_map[i] = mean uint8 RGB of segment i
+        color_map = np.zeros((n_segs, 3), dtype=np.float64)
+        counts    = np.zeros(n_segs, dtype=np.int64)
+        np.add.at(color_map, seg_idx.ravel(), img_rgb.reshape(-1, 3))
+        np.add.at(counts,    seg_idx.ravel(), 1)
+        color_map = (color_map / counts[:, None]).astype(np.uint8)  # (n_segs, 3)
+
+        # ── 3. Precompute full replacement image ──────────────────────────
+        # replacement[y, x] = mean colour of whichever segment owns that pixel
+        replacement = color_map[seg_idx]                        # (H, W, 3)  uint8
+
+        # ── 4. Baseline probability on unmasked image ─────────────────────
+        def _preprocess(pil_img: Image.Image) -> torch.Tensor:
+            return model.feature_extractor.preprocess(pil_img)   # (C, H, W)
+
+        def _infer_batch(tensors: list[torch.Tensor]) -> np.ndarray:
+            batch = torch.stack(tensors, dim=0).to(device)        # (B, C, H, W)
             with torch.no_grad():
-                logits = model(tensor)
-                probs  = torch.softmax(logits, dim=-1)
-            return float(probs[0, 1].item())   # index 1 = Fake
+                if device != "cpu":
+                    with torch.autocast(device_type=device):
+                        logits = model(batch)
+                else:
+                    logits = model(batch)
+                probs = torch.softmax(logits, dim=-1)[:, 1]       # fake prob
+            return probs.cpu().numpy()
 
-        baseline_prob = _infer_pil(original_pil)
+        baseline_prob = float(_infer_batch([_preprocess(original_pil)])[0])
 
-        # ── 3. Random coalition sampling ──────────────────────────────────
-        # Each row is a binary vector over superpixels (1 = keep, 0 = mask)
-        rng         = np.random.default_rng(seed=42)
-        coalitions  = rng.integers(0, 2, size=(n_samples, n_segs), dtype=np.uint8)
+        # ── 5. Random coalition sampling ──────────────────────────────────
+        rng        = np.random.default_rng(seed=42)
+        coalitions = rng.integers(0, 2, size=(n_samples, n_segs), dtype=np.uint8)
+                                                                # (n_samples, n_segs)
 
-        # Distance-based sample weights: prefer coalitions close to "all on"
-        # (mimics LIME's proximity kernel)
-        distances   = np.sum(coalitions == 0, axis=1) / n_segs   # fraction masked
+        # LIME proximity kernel: weight samples close to "all features on"
+        distances    = np.count_nonzero(coalitions == 0, axis=1) / n_segs
         kernel_width = 0.25
-        weights     = np.exp(-(distances ** 2) / (kernel_width ** 2))
+        weights      = np.exp(-(distances ** 2) / (kernel_width ** 2)).astype(np.float32)
 
-        # ── 4. Batched model inference on masked images ───────────────────
-        scores = np.zeros(n_samples, dtype=np.float32)
+        # ── 6. Vectorized masked-image construction + inference ────────────
+        #
+        # Core idea:
+        #   keep_mask[s, y, x] = coalitions[s, seg_idx[y, x]]   (bool)
+        #   masked[s, y, x, c] = img_rgb[y,x,c]  if keep_mask  else replacement[y,x,c]
+        #
+        # We process one batch at a time to stay memory-efficient.
+        # Each batch builds (batch_size, H, W, 3) at once — no per-superpixel
+        # Python loop anywhere.
+
+        scores          = np.zeros(n_samples, dtype=np.float32)
+        H, W            = img_rgb.shape[:2]
+        seg_idx_flat    = seg_idx.ravel()                       # (H*W,)
 
         for batch_start in range(0, n_samples, batch_size):
-            batch_coalitions = coalitions[batch_start: batch_start + batch_size]
-            batch_tensors    = []
+            batch_coal = coalitions[batch_start: batch_start + batch_size]  # (B, n_segs)
+            B          = len(batch_coal)
 
-            for coalition_vec in batch_coalitions:
-                # Build masked image
-                masked = img_rgb.copy()
-                for idx, seg_id in enumerate(unique_segments):
-                    if coalition_vec[idx] == 0:
-                        seg_mask = segments == seg_id
-                        masked[seg_mask] = seg_means[seg_id]
+            # keep_pixel[b, p] = 1 if pixel p's segment is kept in sample b
+            keep_pixel = batch_coal[:, seg_idx_flat]            # (B, H*W)  uint8
+            keep_pixel = keep_pixel.reshape(B, H, W, 1)         # (B, H, W, 1)
 
-                pil_masked = Image.fromarray(masked)
-                tensor     = model.feature_extractor.preprocess(pil_masked).to(device)
-                batch_tensors.append(tensor)
+            # Broadcast: choose original or replacement per pixel
+            # img_rgb:     (H, W, 3)  → broadcast as (1, H, W, 3)
+            # replacement: (H, W, 3)  → broadcast as (1, H, W, 3)
+            masked_batch = np.where(keep_pixel, img_rgb, replacement)  # (B, H, W, 3)  uint8
 
-            batch_input = torch.stack(batch_tensors, dim=0)          # (B, C, H, W)
-            with torch.no_grad():
-                logits = model(batch_input)
-                probs  = torch.softmax(logits, dim=-1)[:, 1]         # fake probs
-            scores[batch_start: batch_start + len(batch_coalitions)] = probs.cpu().numpy()
+            # Preprocess each masked image (PIL required by feature_extractor)
+            tensors = [
+                _preprocess(Image.fromarray(masked_batch[b]))
+                for b in range(B)
+            ]
 
-        # ── 5. Weighted ridge regression → importance weights ─────────────
-        # Design matrix X: (n_samples, n_segs), target y: fake prob scores
-        X = coalitions.astype(np.float32)
-        y = scores
+            batch_scores = _infer_batch(tensors)
+            scores[batch_start: batch_start + B] = batch_scores
 
-        # Weighted ridge regression in closed form:
-        # β = (XᵀWX + λI)⁻¹ XᵀWy
-        W      = np.diag(weights.astype(np.float32))
+        # ── 7. Weighted ridge regression → importance weights ─────────────
+        X       = coalitions.astype(np.float32)                 # (n_samples, n_segs)
+        y       = scores                                         # (n_samples,)
+        W_diag  = np.diag(weights)
         lambda_ = 1e-3
-        XtW    = X.T @ W
-        XtWX   = XtW @ X
-        XtWy   = XtW @ y
-        ridge  = XtWX + lambda_ * np.eye(n_segs, dtype=np.float32)
-        coeffs = np.linalg.solve(ridge, XtWy)                        # (n_segs,)
 
-        # ── 6. R² score for fit quality ───────────────────────────────────
+        XtW  = X.T @ W_diag
+        XtWX = XtW @ X + lambda_ * np.eye(n_segs, dtype=np.float32)
+        XtWy = XtW @ y
+        coeffs = np.linalg.solve(XtWX, XtWy)                   # (n_segs,)
+
+        # ── 8. R² score ───────────────────────────────────────────────────
         y_pred  = X @ coeffs
         ss_res  = float(np.sum(weights * (y - y_pred) ** 2))
         ss_tot  = float(np.sum(weights * (y - np.average(y, weights=weights)) ** 2))
         r2      = round(1.0 - ss_res / ss_tot if ss_tot > 1e-8 else 0.0, 4)
 
-        # ── 7. Build output feature list ──────────────────────────────────
+        # ── 9. Build output feature list ──────────────────────────────────
         features = []
         for idx, seg_id in enumerate(unique_segments):
             imp = float(coeffs[idx])
-            if imp > 0.01:
-                direction = "fake"
-            elif imp < -0.01:
-                direction = "real"
-            else:
-                direction = "neutral"
-
+            direction = "fake" if imp > 0.01 else ("real" if imp < -0.01 else "neutral")
             features.append({
                 "superpixel_id":  int(seg_id),
                 "importance":     round(imp, 6),
@@ -587,14 +603,13 @@ def generate_lime(
                 "direction":      direction,
             })
 
-        # Sort by absolute importance descending for the bar chart
         features.sort(key=lambda f: f["abs_importance"], reverse=True)
 
         top_fake = [f["superpixel_id"] for f in features if f["direction"] == "fake"][:5]
         top_real = [f["superpixel_id"] for f in features if f["direction"] == "real"][:5]
 
         return {
-            "features":             features,           # → bar chart
+            "features":             features,
             "baseline_fake_prob":   round(baseline_prob, 6),
             "top_fake_superpixels": top_fake,
             "top_real_superpixels": top_real,

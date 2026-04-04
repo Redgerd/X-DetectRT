@@ -214,7 +214,10 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                     if frame:
                         xai_db = XAIResult(
                             frame_id=frame.id,
-                            gradcam_b64=gradcam_b64
+                            gradcam_b64=gradcam_b64,
+                            ela_b64=ela_b64,
+                            fft_data=json.dumps(fft_data) if fft_data else None,
+                            lime_data=json.dumps(lime_data) if lime_data else None
                         )
                         db.add(xai_db)
                         db.commit()

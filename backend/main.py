@@ -1,10 +1,11 @@
 # backend/main.py
 
 # imports
-import asyncio
+import os
 import logging
 from fastapi import FastAPI,  WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import redis.asyncio as redis
 from config import settings
 
@@ -157,12 +158,19 @@ from api.video.websocket import router as video_ws_router
 from api.video.routes import router as video_router
 from api.audio.routes import router as audio_router
 from api.audio.websocket import router as audio_ws_router
+from api.report.routes import router as report_router
 
 app.include_router(video_ws_router)
 app.include_router(video_router)
 app.include_router(auth_router)
 app.include_router(audio_router)
 app.include_router(audio_ws_router)
+app.include_router(report_router)
+
+# Serve generated PDF reports
+reports_dir = os.path.join(os.path.dirname(__file__), "reports")
+os.makedirs(reports_dir, exist_ok=True)
+app.mount("/reports", StaticFiles(directory=reports_dir), name="reports")
 
 
 @app.get("/health")

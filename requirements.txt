@@ -45,3 +45,5 @@ scikit-learn>=1.3.0
 PyYAML>=6.0
 # segment-anything is installed from source in Dockerfile (facebookresearch/segment-anything)
 # dlib is optional — only needed if mediapipe is insufficient
+# PDF Report Generation
+fpdf2>=2.7.0

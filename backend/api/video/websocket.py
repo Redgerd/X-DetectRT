@@ -124,6 +124,115 @@ async def wait_for_detection_result(
             redis_client.close()
 
 
+async def wait_for_image_results(
+    ws: WebSocket,
+    task_id: str,
+    detection_task: Any = None,
+    detection_timeout: int = 60,
+    xai_timeout: int = 60
+) -> dict:
+    """
+    Wait for both detection and XAI results for image processing.
+    Subscribes to both channels and keeps the socket open until both arrive
+    (or their respective timeouts expire).
+
+    Args:
+        ws: WebSocket connection
+        task_id: Task ID to listen for
+        detection_task: Optional Celery task to check for completion
+        detection_timeout: Timeout in seconds for detection result
+        xai_timeout: Timeout in seconds for XAI result
+
+    Returns:
+        Dict with keys 'detection' and 'xai', each being the result dict or None
+    """
+    redis_client = None
+    results = {"detection": None, "xai": None}
+
+    try:
+        redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        pubsub = redis_client.pubsub()
+        pubsub.subscribe(f"task_detection:{task_id}")
+        pubsub.subscribe(f"task_xai:{task_id}")
+
+        detection_received = False
+        xai_received = False
+
+        # Use the larger of the two timeouts as the overall loop limit
+        max_timeout = max(detection_timeout, xai_timeout)
+        timeout_counter = 0
+
+        while timeout_counter < max_timeout:
+            # Stop early if both have arrived
+            if detection_received and xai_received:
+                break
+
+            # Also stop if we've exceeded the individual timeouts for each
+            if detection_received and timeout_counter >= xai_timeout:
+                logger.warning(f"XAI result timed out for task: {task_id}")
+                break
+            if xai_received and timeout_counter >= detection_timeout:
+                logger.warning(f"Detection result timed out for task: {task_id}")
+                break
+
+            try:
+                message = pubsub.get_message(timeout=1.0)
+                if message and message['type'] == 'message':
+                    try:
+                        data = json.loads(message['data'])
+                        msg_type = data.get('type')
+
+                        if msg_type == 'detection_ready' and not detection_received:
+                            await ws.send_json(data)
+                            detection_received = True
+                            results["detection"] = data
+                            logger.info(f"Detection result received for image task: {task_id}")
+
+                        elif msg_type == 'xai_ready' and not xai_received:
+                            await ws.send_json(data)
+                            xai_received = True
+                            results["xai"] = data
+                            logger.info(f"XAI result received for image task: {task_id}")
+
+                    except Exception as e:
+                        logger.error(f"Error parsing message in wait_for_image_results: {e}")
+
+                # Check if Celery task is complete (detection side only)
+                if detection_task and detection_task.ready() and not detection_received:
+                    detection_received = True
+
+                timeout_counter += 1
+
+            except Exception as e:
+                logger.error(f"Error in Redis message loop (wait_for_image_results): {e}")
+                break
+
+        pubsub.unsubscribe(f"task_detection:{task_id}")
+        pubsub.unsubscribe(f"task_xai:{task_id}")
+        pubsub.close()
+
+        # Fallback: try Redis direct fetch for detection if still missing
+        if not detection_received:
+            detection_result_json = redis_client.get(f"detection_result:{task_id}")
+            if detection_result_json:
+                try:
+                    detection_result = json.loads(detection_result_json)
+                    await ws.send_json(detection_result)
+                    results["detection"] = detection_result
+                    logger.info(f"Retrieved detection result from Redis for task: {task_id}")
+                except Exception as e:
+                    logger.error(f"Error parsing fallback detection result: {e}")
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Error in wait_for_image_results: {e}")
+        return results
+    finally:
+        if redis_client:
+            redis_client.close()
+
+
 async def receive_file_data(
     ws: WebSocket,
     task_id: str,
@@ -352,14 +461,18 @@ async def websocket_task(ws: WebSocket):
                 
                 logger.info(f"Sent image to detection worker for task: {task_id}")
                 
-                # Wait for detection result
-                detection_result = await wait_for_detection_result(
+                # Wait for both detection AND XAI results before closing (event-driven)
+                image_results = await wait_for_image_results(
                     ws=ws,
                     task_id=task_id,
                     detection_task=detection_task,
-                    timeout=60
+                    detection_timeout=300,  # Long timeout for event-driven waiting
+                    xai_timeout=300
                 )
-                
+
+                detection_result = image_results.get("detection")
+                xai_result = image_results.get("xai")
+
                 # Send completion message
                 await safe_send_json(ws, {
                     "type": "processing_complete",
@@ -368,7 +481,8 @@ async def websocket_task(ws: WebSocket):
                     "anomaly_count": detection_result.get("anomaly_count", 0) if detection_result and isinstance(detection_result, dict) else 0,
                     "task_id": task_id,
                     "is_image": True,
-                    "detection_result": detection_result
+                    "detection_result": detection_result,
+                    "xai_result": xai_result
                 })
 
                 # Update task status to completed
@@ -523,6 +637,13 @@ async def websocket_task(ws: WebSocket):
                                         logger.debug(f"Forwarded XAI result for frame {data.get('frame_index')}")
                                         await asyncio.sleep(FRAME_SEND_DELAY)
                                         
+                                    elif data_type == 'timeshap_ready':
+                                        # TimeSHAP result from explainable_ai task
+                                        # Forward directly to frontend
+                                        await safe_send_json(ws, data)
+                                        logger.debug(f"Forwarded TimeSHAP result for task {data.get('task_id')}")
+                                        await asyncio.sleep(FRAME_SEND_DELAY)
+                                        
                                     else:
                                         # Forward other message types
                                         await safe_send_json(ws, data)
@@ -573,6 +694,7 @@ async def websocket_task(ws: WebSocket):
 
                 # Get detection result
                 detection_result = None
+                xai_result = None
                 if redis_client:
                     detection_result_json = redis_client.get(f"detection_result:{task_id}")
                     if detection_result_json:
@@ -582,10 +704,19 @@ async def websocket_task(ws: WebSocket):
                         except Exception as e:
                             logger.error(f"Error parsing detection result: {e}", exc_info=True)
                     
+                    # Get XAI result (includes Grad-CAM and TimeSHAP)
+                    xai_result_json = redis_client.get(f"xai_result:{task_id}")
+                    if xai_result_json:
+                        try:
+                            xai_result = json.loads(xai_result_json)
+                            result['xai'] = xai_result
+                        except Exception as e:
+                            logger.error(f"Error parsing XAI result: {e}", exc_info=True)
+                    
                     redis_client.close()
                 
-                # Send completion message
-                await safe_send_json(ws, {
+                # Send completion message with detection and XAI results
+                completion_message = {
                     "type": "processing_complete",
                     "message": "Frame extraction and spatial detection completed",
                     "total_frames": result.get("total_frames", 0),
@@ -593,7 +724,15 @@ async def websocket_task(ws: WebSocket):
                     "anomaly_count": detection_result.get("anomaly_count", 0) if detection_result else 0,
                     "task_id": task_id,
                     "frames_with_detection": processed_frames
-                })
+                }
+                
+                # Include XAI results if available (Grad-CAM + TimeSHAP)
+                if xai_result:
+                    completion_message["xai_results"] = xai_result.get("xai_results", [])
+                    completion_message["timeshap_result"] = xai_result.get("timeshap_result", None)
+                    completion_message["total_frames_explained"] = xai_result.get("total_frames_explained", 0)
+                
+                await safe_send_json(ws, completion_message)
                 
             except Exception as e:
                 logger.error(f"Error in frame extraction: {e}", exc_info=True)

@@ -44,7 +44,7 @@ def seconds_to_hhmmss(seconds):
 
 MIN_CROP_SIZE = 40
 PADDING = 20
-FLOW_THRESHOLD = 1.2
+FLOW_THRESHOLD = 3.0
 
 @shared_task(name="frame_selection_pipeline.run")
 def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=15, video_duration=None):

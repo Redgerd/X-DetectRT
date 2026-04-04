@@ -15,6 +15,7 @@ from core.celery.detection_tasks import run_gend_inference
 # Import models and database
 from models import VideoAnalysisTask, DetectionResult, Users, ProcessedFrame
 from core.database import SessionLocal
+
 import json 
 router = APIRouter(prefix="/video", tags=["Video Processing"])
 
@@ -199,17 +200,18 @@ async def test_gend_inference(
 @router.get("/anomalies/count")
 async def get_anomalies_count(current_user = Depends(get_current_user)):
     """
-    Get the total count of anomalies detected in all videos for the current user.
+    Get the total count of anomalies detected in videos.
+    Admins see all anomalies, regular users see only their own.
     """
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     db = SessionLocal()
     try:
-        count = db.query(DetectionResult).join(ProcessedFrame, DetectionResult.frame_id == ProcessedFrame.id).join(VideoAnalysisTask, ProcessedFrame.task_id == VideoAnalysisTask.task_id).filter(
-            VideoAnalysisTask.user_id == current_user['user_id'],
-            DetectionResult.is_anomaly == True
-        ).count()
+        query = db.query(DetectionResult).join(ProcessedFrame, DetectionResult.frame_id == ProcessedFrame.id).join(VideoAnalysisTask, ProcessedFrame.task_id == VideoAnalysisTask.task_id).filter(DetectionResult.is_anomaly == True)
+        if current_user['role'] != 'admin':
+            query = query.filter(VideoAnalysisTask.user_id == current_user['user_id'])
+        count = query.count()
         return {"total_anomalies": count}
     finally:
         db.close()
@@ -296,6 +298,12 @@ async def get_all_videos_test():
 
         result = []
         for task in tasks:
+            # Check if this task has any anomalies
+            has_anomalies = db.query(DetectionResult).join(ProcessedFrame).filter(
+                ProcessedFrame.task_id == task.task_id,
+                DetectionResult.is_anomaly == True
+            ).count() > 0
+
             result.append({
                 "task_id": task.task_id,
                 "video_path": task.video_path,
@@ -304,6 +312,7 @@ async def get_all_videos_test():
                 "completed_at": task.completed_at.isoformat() if task.completed_at else None,
                 "faces_detected_frames": task.faces_detected_frames,
                 "frames_skipped": task.frames_skipped,
+                "has_anomalies": has_anomalies,
                 "user": {
                     "id": task.user.id,
                     "username": task.user.username,
@@ -335,6 +344,13 @@ async def get_all_videos(current_user = Depends(get_current_user)):
 
         result = []
         for task in tasks:
+
+            # Check if this task has any anomalies
+            has_anomalies = db.query(DetectionResult).join(ProcessedFrame).filter(
+                ProcessedFrame.task_id == task.task_id,
+                DetectionResult.is_anomaly == True
+            ).count() > 0
+
             result.append({
                 "task_id": task.task_id,
                 "video_path": task.video_path,
@@ -343,6 +359,7 @@ async def get_all_videos(current_user = Depends(get_current_user)):
                 "completed_at": task.completed_at.isoformat() if task.completed_at else None,
                 "faces_detected_frames": task.faces_detected_frames,
                 "frames_skipped": task.frames_skipped,
+                "has_anomalies": has_anomalies,
                 "user": {
                     "id": task.user.id,
                     "username": task.user.username,

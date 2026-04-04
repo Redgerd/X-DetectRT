@@ -6,9 +6,10 @@ import logging
 import cv2
 import numpy as np
 import base64
+import time
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect
 from core.celery.frame_selection import extract_faces_with_optical_flow
-from core.celery.detection_tasks import run_gend_inference 
+from core.celery.detection_tasks import run_gend_inference
 import json
 from json import JSONDecodeError
 import redis
@@ -562,16 +563,20 @@ async def websocket_task(ws: WebSocket):
                     # Listen for frames and detection results
                     frame_count = 0
                     detection_count = 0
+                    anomaly_count = 0
+                    xai_count = 0
                     pending_detections = {}  # Store frames waiting for detection results
-                    
+                    last_message_time = time.time()
+
                     while True:
                         try:
                             message = pubsub.get_message(timeout=1.0)
                             if message and message['type'] == 'message':
+                                last_message_time = time.time()
                                 try:
                                     data = json.loads(message['data'])
                                     data_type = data.get('type', '')
-                                    
+
                                     if data_type == 'frame_ready':
                                         # Frame from frame_selection task
                                         frame_index = data.get('frame_index', 0)
@@ -579,7 +584,7 @@ async def websocket_task(ws: WebSocket):
                                         timestamp = data.get('timestamp', '')
                                         timestamp_seconds = data.get('timestamp_seconds', 0.0)
                                         fps = data.get('fps', 30.0)
-                                        
+
                                         # Send frame and wait for detection result
                                         detection_result = await send_frame_with_detection(
                                             ws=ws,
@@ -593,23 +598,27 @@ async def websocket_task(ws: WebSocket):
                                             is_image=False,
                                             wait_for_detection=True
                                         )
-                                        
+
                                         if detection_result:
                                             processed_frames[frame_index] = {
                                                 'frame': data,
                                                 'detection': detection_result
                                             }
                                             detection_count += 1
-                                        
+
                                         frame_count += 1
                                         logger.debug(f"Processed frame {frame_count} with detection")
                                         await asyncio.sleep(FRAME_SEND_DELAY)
-                                        
+
                                     elif data_type == 'detection_ready':
                                         # Detection result from spatial detection task
                                         frame_index = data.get('frame_index', 0)
                                         data['is_processed'] = True
-                                        
+
+                                        # Count anomalies
+                                        if data.get('is_anomaly'):
+                                            anomaly_count += 1
+
                                         # If we have the frame stored, combine and send
                                         if frame_index in processed_frames:
                                             combined_message = {
@@ -625,40 +634,39 @@ async def websocket_task(ws: WebSocket):
                                         else:
                                             # Just send detection result
                                             await safe_send_json(ws, data)
-                                        
+
                                         detection_count += 1
                                         logger.debug(f"Forwarded detection result {detection_count} for frame {frame_index}")
                                         await asyncio.sleep(FRAME_SEND_DELAY)
-                                        
+
                                     elif data_type == 'xai_ready':
                                         # XAI/Grad-CAM result from explainable_ai task
                                         # Forward directly to frontend
                                         await safe_send_json(ws, data)
+                                        xai_count += 1
                                         logger.debug(f"Forwarded XAI result for frame {data.get('frame_index')}")
                                         await asyncio.sleep(FRAME_SEND_DELAY)
-                                        
+
                                     elif data_type == 'timeshap_ready':
                                         # TimeSHAP result from explainable_ai task
                                         # Forward directly to frontend
                                         await safe_send_json(ws, data)
                                         logger.debug(f"Forwarded TimeSHAP result for task {data.get('task_id')}")
                                         await asyncio.sleep(FRAME_SEND_DELAY)
-                                        
+
                                     else:
                                         # Forward other message types
                                         await safe_send_json(ws, data)
-                                        
+
                                 except Exception as e:
                                     logger.error(f"Error forwarding message: {e}", exc_info=True)
-                            
+
                             # Check if processing is complete
                             frame_task_ready = celery_task.ready()
-                            detection_result = redis_client.get(f"detection_result:{task_id}")
-                            detection_complete = detection_result is not None
-                            
-                            if frame_task_ready and detection_complete:
+
+                            if frame_task_ready and detection_count >= frame_count and xai_count >= anomaly_count and (time.time() - last_message_time > 2.0):
                                 break
-                                
+
                         except Exception as e:
                             logger.error(f"Error in Redis message loop: {e}", exc_info=True)
                             break
@@ -692,19 +700,9 @@ async def websocket_task(ws: WebSocket):
                 finally:
                     db.close()
 
-                # Get detection result
-                detection_result = None
+                # Get XAI result (includes Grad-CAM and TimeSHAP)
                 xai_result = None
                 if redis_client:
-                    detection_result_json = redis_client.get(f"detection_result:{task_id}")
-                    if detection_result_json:
-                        try:
-                            detection_result = json.loads(detection_result_json)
-                            result['detection'] = detection_result
-                        except Exception as e:
-                            logger.error(f"Error parsing detection result: {e}", exc_info=True)
-                    
-                    # Get XAI result (includes Grad-CAM and TimeSHAP)
                     xai_result_json = redis_client.get(f"xai_result:{task_id}")
                     if xai_result_json:
                         try:
@@ -712,7 +710,7 @@ async def websocket_task(ws: WebSocket):
                             result['xai'] = xai_result
                         except Exception as e:
                             logger.error(f"Error parsing XAI result: {e}", exc_info=True)
-                    
+
                     redis_client.close()
                 
                 # Send completion message with detection and XAI results

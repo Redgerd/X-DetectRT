@@ -7,6 +7,7 @@ from models.base import Base
 class UserRole(enum.Enum):
     guest = "guest"
     user = "user"
+    admin = "admin"
 
 class Users(Base):
     __tablename__ = 'users'
@@ -18,4 +19,7 @@ class Users(Base):
     role = Column(Enum(UserRole), default=UserRole.user, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     profile_url = Column(String, nullable=True)
+
+    # Relationship to VideoAnalysisTask
+    tasks = relationship("VideoAnalysisTask", back_populates="user")
 

@@ -19,9 +19,11 @@ import cv2
 # Import the GenD inference function
 from services.detection.model import run_gend_inference as gend_model_inference
 
-# Import the XAI task 
+# Import the XAI task
 from core.celery.explainable_ai import run_explainable_ai
 
+from models import DetectionResult, ProcessedFrame
+from core.database import SessionLocal
 
 # Redis client
 redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
@@ -87,6 +89,27 @@ def run_gend_inference(self, task_id: str, frame_data: str, frame_index: int = 0
             "task_id": task_id,
             "frame_data": frame_data
         }
+
+        # Insert detection result into database
+        db = SessionLocal()
+        try:
+            frame = db.query(ProcessedFrame).filter_by(task_id=task_id, frame_index=frame_index).first()
+            if frame:
+                detection = DetectionResult(
+                    frame_id=frame.id,
+                    is_anomaly=is_anomaly,
+                    confidence=round(confidence, 2),
+                    real_prob=round(real_prob, 4),
+                    fake_prob=round(fake_prob, 4),
+                    anomaly_type='GenD Deepfake'
+                )
+                db.add(detection)
+                db.commit()
+        except Exception as e:
+            logger.warning(f"[GenD Inference] Failed to insert detection for frame {frame_index}: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
         # Publish to Redis
         try:

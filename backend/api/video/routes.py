@@ -7,10 +7,16 @@ from datetime import datetime
 from jose import jwt
 from jose.exceptions import JWTError
 from config import settings, XAI_CONFIG
+from sqlalchemy.orm import joinedload
 
 # Import the Celery task for GenD inference
 from core.celery.detection_tasks import run_gend_inference
 
+# Import models and database
+from models import VideoAnalysisTask, DetectionResult, Users, ProcessedFrame
+from core.database import SessionLocal
+
+import json 
 router = APIRouter(prefix="/video", tags=["Video Processing"])
 
 # Simple secret key for JWT validation (use settings.SECRET_KEY in production)
@@ -189,4 +195,179 @@ async def test_gend_inference(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
+
+
+@router.get("/anomalies/count")
+async def get_anomalies_count(current_user = Depends(get_current_user)):
+    """
+    Get the total count of anomalies detected in videos.
+    Admins see all anomalies, regular users see only their own.
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    db = SessionLocal()
+    try:
+        query = db.query(DetectionResult).join(ProcessedFrame, DetectionResult.frame_id == ProcessedFrame.id).join(VideoAnalysisTask, ProcessedFrame.task_id == VideoAnalysisTask.task_id).filter(DetectionResult.is_anomaly == True)
+        if current_user['role'] != 'admin':
+            query = query.filter(VideoAnalysisTask.user_id == current_user['user_id'])
+        count = query.count()
+        return {"total_anomalies": count}
+    finally:
+        db.close()
+
+
+@router.get("/test/anomalies/count")
+async def get_anomalies_count_test():
+    """
+    Test route: Get the total count of anomalies detected in all videos (no auth required).
+    """
+    db = SessionLocal()
+    try:
+        count = db.query(DetectionResult).filter(DetectionResult.is_anomaly == True).count()
+        return {"total_anomalies": count}
+    finally:
+        db.close()
+
+
+@router.get("/test/detections")
+async def get_detections_test(task_id: str = Query(..., description="Task ID to get detections for")):
+    """
+    Test route: Get all detection results for a specific video task (no auth required).
+    """
+    db = SessionLocal()
+    try:
+        # Join DetectionResult with ProcessedFrame to get frame info
+        detections = db.query(DetectionResult, ProcessedFrame).join(ProcessedFrame, DetectionResult.frame_id == ProcessedFrame.id).filter(ProcessedFrame.task_id == task_id).all()
+
+        result = []
+        for detection, frame in detections:
+            result.append({
+                "id": detection.id,
+                "frame_id": detection.frame_id,
+                "is_anomaly": detection.is_anomaly,
+                "confidence": detection.confidence,
+                "real_prob": detection.real_prob,
+                "fake_prob": detection.fake_prob,
+                "anomaly_type": detection.anomaly_type,
+                "frame_index": frame.frame_index,
+                "timestamp": frame.timestamp,
+            })
+        return {"detections": result}
+    finally:
+        db.close()
+
+
+@router.get("/test/xai")
+async def get_xai_test(task_id: str = Query(..., description="Task ID to get XAI results for")):
+    """
+    Test route: Get all XAI results for a specific video task (no auth required).
+    """
+    db = SessionLocal()
+    try:
+        from models import XAIResult
+        # Join XAIResult with ProcessedFrame to get frame info
+        xai_results = db.query(XAIResult, ProcessedFrame).join(ProcessedFrame, XAIResult.frame_id == ProcessedFrame.id).filter(ProcessedFrame.task_id == task_id).all()
+
+        result = []
+        for xai, frame in xai_results:
+            result.append({
+                "id": xai.id,
+                "frame_id": xai.frame_id,
+                "gradcam_b64": xai.gradcam_b64,
+                "ela_b64": xai.ela_b64,
+                "fft_data": json.loads(xai.fft_data) if xai.fft_data else None,
+                "lime_data": json.loads(xai.lime_data) if xai.lime_data else None,
+                "error": xai.error,
+                "frame_index": frame.frame_index,
+                "timestamp": frame.timestamp,
+            })
+        return {"xai_results": result}
+    finally:
+        db.close()
+
+
+@router.get("/test/all")
+async def get_all_videos_test():
+    """
+    Test route: Get all video analysis data including the user who uploaded them (no auth required).
+    """
+    db = SessionLocal()
+    try:
+        tasks = db.query(VideoAnalysisTask).options(joinedload(VideoAnalysisTask.user)).all()
+
+        result = []
+        for task in tasks:
+            # Check if this task has any anomalies
+            has_anomalies = db.query(DetectionResult).join(ProcessedFrame).filter(
+                ProcessedFrame.task_id == task.task_id,
+                DetectionResult.is_anomaly == True
+            ).count() > 0
+
+            result.append({
+                "task_id": task.task_id,
+                "video_path": task.video_path,
+                "status": task.status.value,
+                "created_at": task.created_at.isoformat() if task.created_at else None,
+                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                "faces_detected_frames": task.faces_detected_frames,
+                "frames_skipped": task.frames_skipped,
+                "has_anomalies": has_anomalies,
+                "user": {
+                    "id": task.user.id,
+                    "username": task.user.username,
+                    "email": task.user.email,
+                    "role": task.user.role.value
+                }
+            })
+        return {"videos": result}
+    finally:
+        db.close()
+
+
+@router.get("/all")
+async def get_all_videos(current_user = Depends(get_current_user)):
+    """
+    Get all video analysis data including the user who uploaded them.
+    Admins see all videos, regular users see only their own.
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    db = SessionLocal()
+    try:
+        query = db.query(VideoAnalysisTask).options(joinedload(VideoAnalysisTask.user))
+        if current_user['role'] != 'admin':
+            query = query.filter(VideoAnalysisTask.user_id == current_user['user_id'])
+
+        tasks = query.all()
+
+        result = []
+        for task in tasks:
+
+            # Check if this task has any anomalies
+            has_anomalies = db.query(DetectionResult).join(ProcessedFrame).filter(
+                ProcessedFrame.task_id == task.task_id,
+                DetectionResult.is_anomaly == True
+            ).count() > 0
+
+            result.append({
+                "task_id": task.task_id,
+                "video_path": task.video_path,
+                "status": task.status.value,
+                "created_at": task.created_at.isoformat() if task.created_at else None,
+                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                "faces_detected_frames": task.faces_detected_frames,
+                "frames_skipped": task.frames_skipped,
+                "has_anomalies": has_anomalies,
+                "user": {
+                    "id": task.user.id,
+                    "username": task.user.username,
+                    "email": task.user.email,
+                    "role": task.user.role.value
+                }
+            })
+        return {"videos": result}
+    finally:
+        db.close()
 

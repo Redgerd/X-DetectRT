@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 from celery import shared_task
 from celery.signals import worker_process_init
-
+from typing import Optional
 # Redis
 import redis
 from config import settings
@@ -55,7 +55,7 @@ def image_to_base64(img: np.ndarray) -> str:
 # ============================================================
 
 @shared_task(name="backend.core.celery.detection_tasks.run_gend_inference", bind=True, max_retries=3)
-def run_gend_inference(self, task_id: str, frame_data: str, frame_index: int = 0, timestamp: str = "") -> dict:
+def run_gend_inference(self, task_id: str, frame_data: str, frame_index: int = 0, timestamp: str = "", user_id: Optional[str] = None) -> dict:
     """
     Celery task for running GenD inference on a single frame.
     """
@@ -90,26 +90,27 @@ def run_gend_inference(self, task_id: str, frame_data: str, frame_index: int = 0
             "frame_data": frame_data
         }
 
-        # Insert detection result into database
-        db = SessionLocal()
-        try:
-            frame = db.query(ProcessedFrame).filter_by(task_id=task_id, frame_index=frame_index).first()
-            if frame:
-                detection = DetectionResult(
-                    frame_id=frame.id,
-                    is_anomaly=is_anomaly,
-                    confidence=round(confidence, 2),
-                    real_prob=round(real_prob, 4),
-                    fake_prob=round(fake_prob, 4),
-                    anomaly_type='GenD Deepfake'
-                )
-                db.add(detection)
-                db.commit()
-        except Exception as e:
-            logger.warning(f"[GenD Inference] Failed to insert detection for frame {frame_index}: {e}")
-            db.rollback()
-        finally:
-            db.close()
+        if user_id:
+            # Insert detection result into database
+            db = SessionLocal()
+            try:
+                frame = db.query(ProcessedFrame).filter_by(task_id=task_id, frame_index=frame_index).first()
+                if frame:
+                    detection = DetectionResult(
+                        frame_id=frame.id,
+                        is_anomaly=is_anomaly,
+                        confidence=round(confidence, 2),
+                        real_prob=round(real_prob, 4),
+                        fake_prob=round(fake_prob, 4),
+                        anomaly_type='GenD Deepfake'
+                    )
+                    db.add(detection)
+                    db.commit()
+            except Exception as e:
+                logger.warning(f"[GenD Inference] Failed to insert detection for frame {frame_index}: {e}")
+                db.rollback()
+            finally:
+                db.close()
 
         # Publish to Redis
         try:
@@ -131,7 +132,7 @@ def run_gend_inference(self, task_id: str, frame_data: str, frame_index: int = 0
                 frame_results = {
                     "results": [detection_result]
                 }
-                run_explainable_ai.delay(task_id, {"results": [detection_result]})
+                run_explainable_ai.delay(task_id, {"results": [detection_result]}, user_id=user_id)
                 logger.info(f"[XAI] XAI task dispatched for task_id={task_id}, frame_index={frame_index}")
             except Exception as xai_err:
                 logger.warning(f"[GenD Inference] Failed to dispatch XAI task: {xai_err}")

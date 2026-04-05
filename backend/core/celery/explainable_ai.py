@@ -17,7 +17,7 @@ import json
 import logging
 import numpy as np
 import cv2
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from PIL import Image
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -68,7 +68,7 @@ def _base64_to_pil(base64_str: str) -> Image.Image:
     soft_time_limit=120,
     time_limit=150,
 )
-def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dict[str, Any]:
+def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any], user_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Generate Grad-CAM++, ELA, and 2D FFT explanations for each frame.
 
@@ -207,25 +207,26 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                 except Exception as redis_err:
                     logger.warning(f"[XAI] Redis publish error for frame {frame_index}: {redis_err}")
                 
-                # Insert XAI result into database
-                db = SessionLocal()
-                try:
-                    frame = db.query(ProcessedFrame).filter_by(task_id=task_id, frame_index=frame_index).first()
-                    if frame:
-                        xai_db = XAIResult(
-                            frame_id=frame.id,
-                            gradcam_b64=gradcam_b64,
-                            ela_b64=ela_b64,
-                            fft_data=json.dumps(fft_data) if fft_data else None,
-                            lime_data=json.dumps(lime_data) if lime_data else None
-                        )
-                        db.add(xai_db)
-                        db.commit()
-                except Exception as e:
-                    logger.warning(f"[XAI] Failed to insert XAI for frame {frame_index}: {e}")
-                    db.rollback()
-                finally:
-                    db.close()
+                if user_id:
+                    # Insert XAI result into database
+                    db = SessionLocal()
+                    try:
+                        frame = db.query(ProcessedFrame).filter_by(task_id=task_id, frame_index=frame_index).first()
+                        if frame:
+                            xai_db = XAIResult(
+                                frame_id=frame.id,
+                                gradcam_b64=gradcam_b64,
+                                ela_b64=ela_b64,
+                                fft_data=json.dumps(fft_data) if fft_data else None,
+                                lime_data=json.dumps(lime_data) if lime_data else None
+                            )
+                            db.add(xai_db)
+                            db.commit()
+                    except Exception as e:
+                        logger.warning(f"[XAI] Failed to insert XAI for frame {frame_index}: {e}")
+                        db.rollback()
+                    finally:
+                        db.close()
 
                 logger.info(
                                     f"[XAI] Frame {frame_index} complete: "
@@ -256,22 +257,23 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                     "message":      "XAI generation failed for this frame",
                 })
 
-                # Insert failed XAI result into database
-                db = SessionLocal()
-                try:
-                    frame = db.query(ProcessedFrame).filter_by(task_id=task_id, frame_index=frame_index).first()
-                    if frame:
-                        xai_db = XAIResult(
-                            frame_id=frame.id,
-                            error=str(frame_err)
-                        )
-                        db.add(xai_db)
-                        db.commit()
-                except Exception as e:
-                    logger.warning(f"[XAI] Failed to insert failed XAI for frame {frame_index}: {e}")
-                    db.rollback()
-                finally:
-                    db.close()
+                if user_id:
+                    # Insert failed XAI result into database
+                    db = SessionLocal()
+                    try:
+                        frame = db.query(ProcessedFrame).filter_by(task_id=task_id, frame_index=frame_index).first()
+                        if frame:
+                            xai_db = XAIResult(
+                                frame_id=frame.id,
+                                error=str(frame_err)
+                            )
+                            db.add(xai_db)
+                            db.commit()
+                    except Exception as e:
+                        logger.warning(f"[XAI] Failed to insert failed XAI for frame {frame_index}: {e}")
+                        db.rollback()
+                    finally:
+                        db.close()
 
                 continue
 

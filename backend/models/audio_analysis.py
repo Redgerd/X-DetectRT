@@ -1,11 +1,11 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, Text, DateTime, ForeignKey, Sequence
+from sqlalchemy import Column, Integer, String, Boolean, Float, Text, DateTime, ForeignKey
 from models.base import Base
 from datetime import datetime
 
 class AudioAnalysis(Base):
     __tablename__ = 'audio_analysis'
 
-    id = Column(Integer, Sequence('audio_analysis_seq'), primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True)
     audio_file_id = Column(Integer, ForeignKey('audio_files.id'), nullable=False)
     verdict = Column(String, nullable=False)  # "FAKE" or "REAL"
     is_fake = Column(Boolean, nullable=False)

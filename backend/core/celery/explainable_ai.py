@@ -165,9 +165,9 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any], user_i
                 # ── 4. LIME superpixel attribution ────────────────────────
                 logger.info(f"[XAI] Generating LIME for frame {frame_index}")
                 lime_data = generate_lime(model, pil_image, device=device)
-
+                
                 # ── 5. LLM narrative explanation ──────────────────────────
-                logger.info(f"[XAI] Dispatching LLM analysis for frame {frame_index}")
+                logger.info(f"[XAI] Generating LLM analysis for frame {frame_index}")
                 from core.celery.llm import run_llm
                 llm_result = run_llm(
                     task_id=task_id,

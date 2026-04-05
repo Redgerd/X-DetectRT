@@ -21,6 +21,8 @@ from jose.exceptions import JWTError
 
 from config import settings
 from api.audio.schemas import AudioAnalysisResult, StftData
+from core.database import SessionLocal
+from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
 
@@ -259,3 +261,55 @@ async def analyze_audio(
         ig_scores        = ig_scores,
         shap_scores      = shap_scores,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /audio/all
+# ---------------------------------------------------------------------------
+
+@router.get("/all")
+async def get_all_audio(current_user = Depends(get_current_user)):
+    """
+    Get all audio analysis data for the current user.
+    Admins see all audio analyses, regular users see only their own.
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    from models import AudioAnalysis, AudioFile, Users
+
+    db = SessionLocal()
+    try:
+        query = db.query(AudioAnalysis, AudioFile, Users).join(AudioFile, AudioAnalysis.audio_file_id == AudioFile.id).join(Users, AudioFile.user_id == Users.id)
+        if current_user['role'] != 'admin':
+            query = query.filter(AudioFile.user_id == current_user['user_id'])
+
+        analyses = query.all()
+
+        result = []
+        for analysis, audiofile, user in analyses:
+            result.append({
+                "analysis_id": analysis.id,
+                "verdict": analysis.verdict,
+                "is_fake": analysis.is_fake,
+                "confidence": analysis.confidence,
+                "fake_prob": analysis.fake_prob,
+                "real_prob": analysis.real_prob,
+                "duration_seconds": analysis.duration_seconds,
+                "analysis_time": analysis.analysis_time.isoformat() if analysis.analysis_time else None,
+                "audio_file": {
+                    "id": audiofile.id,
+                    "filename": audiofile.filename,
+                    "file_size": audiofile.file_size,
+                    "upload_time": audiofile.upload_time.isoformat() if audiofile.upload_time else None,
+                    "user": {
+                        "id": user.id,
+                        "username": user.username,
+                        "email": user.email,
+                        "role": user.role.value
+                    }
+                }
+            })
+        return {"audio_analyses": result}
+    finally:
+        db.close()

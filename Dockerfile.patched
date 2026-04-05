@@ -3,7 +3,7 @@ FROM my-fastapi-app:latest
 
 # Install only the missing packages
 RUN pip install --no-cache-dir \
-    openai
+    minio
 
 # docker build -f Dockerfile.patched -t my-fastapi-app:patched .
 # docker tag my-fastapi-app:patched my-fastapi-app:latest

@@ -47,3 +47,4 @@ PyYAML>=6.0
 # dlib is optional — only needed if mediapipe is insufficient
 # LLM
 openai
+minio

@@ -34,6 +34,33 @@ router = APIRouter()
 FRAME_SEND_DELAY = 0.05  # 50ms between frames
 
 
+async def watch_disconnect(ws: WebSocket, event: asyncio.Event) -> None:
+    """Sets event when client disconnects or sends connection_closed."""
+    try:
+        while True:
+            msg = await ws.receive()
+            if msg.get("type") == "websocket.disconnect":
+                event.set()
+                return
+            try:
+                if json.loads(msg.get("text", "{}")).get("type") == "connection_closed":
+                    event.set()
+                    return
+            except Exception:
+                pass
+    except (WebSocketDisconnect, RuntimeError):
+        event.set()
+
+
+def revoke_task(task: Any, task_id: str, label: str) -> None:
+    """Revoke a Celery task cleanly."""
+    try:
+        task.revoke(terminate=True, signal="SIGTERM")
+        logger.info(f"Revoked {label} task: {task_id}")
+    except Exception as e:
+        logger.warning(f"Failed to revoke {label} task {task_id}: {e}")
+
+
 async def wait_for_image_results(
     ws: WebSocket,
     task_id: str,
@@ -296,6 +323,12 @@ async def websocket_task(ws: WebSocket):
                     HARD_TIMEOUT = 600
                     start_time = time.time()
 
+                    # ------------------------------------------------------ #
+                    # Disconnect watcher                                       #
+                    # ------------------------------------------------------ #
+                    disconnected = asyncio.Event()
+                    watcher = asyncio.create_task(watch_disconnect(ws, disconnected))
+
                     while not pipeline_done:
 
                         # -------------------------------------------------- #
@@ -306,15 +339,21 @@ async def websocket_task(ws: WebSocket):
                             break
 
                         # -------------------------------------------------- #
+                        # Disconnect check                                     #
+                        # -------------------------------------------------- #
+                        if disconnected.is_set():
+                            logger.info(f"Client disconnected, revoking image task: {task_id}")
+                            revoke_task(detection_task, task_id, "image")
+                            pipeline_done = True
+                            break
+
+                        # -------------------------------------------------- #
                         # Completion check                                      #
                         # -------------------------------------------------- #
-                        # We consider the pipeline done when:
-                        #   1. Detection has been received.
-                        #   2. If anomaly, XAI has been received.
                         if (
                             detections_received >= frames_received
                             and xai_received >= len(anomaly_frame_indices)
-                            and frames_received > 0          # at least one frame processed
+                            and frames_received > 0
                         ):
                             logger.info(
                                 f"Image pipeline complete for task {task_id}: "
@@ -370,6 +409,11 @@ async def websocket_task(ws: WebSocket):
                     pubsub.unsubscribe(f"task_detection:{task_id}")
                     pubsub.unsubscribe(f"task_xai:{task_id}")
                     pubsub.close()
+
+                    # ------------------------------------------------------ #
+                    # Cancel disconnect watcher                               #
+                    # ------------------------------------------------------ #
+                    watcher.cancel()
 
                 except Exception as e:
                     logger.error(f"Error in image processing loop: {e}")
@@ -494,6 +538,13 @@ async def websocket_task(ws: WebSocket):
                     HARD_TIMEOUT = 600
                     start_time = time.time()
 
+                    # ------------------------------------------------------ #
+                    # Disconnect watcher                                       #
+                    # ------------------------------------------------------ #
+                    disconnected = asyncio.Event()
+                    watcher = asyncio.create_task(watch_disconnect(ws, disconnected))
+                    cancelled = False  # track if we cancelled due to disconnect
+
                     while not pipeline_done:
 
                         # -------------------------------------------------- #
@@ -504,19 +555,23 @@ async def websocket_task(ws: WebSocket):
                             break
 
                         # -------------------------------------------------- #
+                        # Disconnect check                                     #
+                        # -------------------------------------------------- #
+                        if disconnected.is_set():
+                            logger.info(f"Client disconnected, revoking video task: {task_id}")
+                            revoke_task(celery_task, task_id, "video")
+                            cancelled = True
+                            pipeline_done = True
+                            break
+
+                        # -------------------------------------------------- #
                         # Completion check                                      #
                         # -------------------------------------------------- #
-                        # We consider the pipeline done when:
-                        #   1. The frame-extraction Celery task has finished.
-                        #   2. Every frame_ready has a matching detection_ready.
-                        #   3. Every anomalous frame has a matching xai_ready.
-                        #   4. No new messages have arrived for IDLE_GRACE seconds
-                        #      (guards against slow final messages).
                         if (
                             extraction_complete
                             and detections_received >= frames_received
                             and xai_received >= len(anomaly_frame_indices)
-                            and frames_received > 0          # at least one frame processed
+                            and frames_received > 0
                             and (time.time() - last_message_time) > IDLE_GRACE
                         ):
                             logger.info(
@@ -649,6 +704,11 @@ async def websocket_task(ws: WebSocket):
                     pubsub.unsubscribe(f"task_xai:{task_id}")
                     pubsub.close()
 
+                    # ------------------------------------------------------ #
+                    # Cancel disconnect watcher                               #
+                    # ------------------------------------------------------ #
+                    watcher.cancel()
+
                 except Exception as e:
                     logger.error(f"Error in Redis subscription loop: {e}", exc_info=True)
 
@@ -656,21 +716,25 @@ async def websocket_task(ws: WebSocket):
                 # Retrieve final Celery result and XAI from Redis             #
                 # ---------------------------------------------------------- #
                 result = {}
-                try:
-                    result = celery_task.get(timeout=30)
-                    logger.info(f"Celery task result: {result}")
-                except Exception as e:
-                    logger.error(f"Error getting Celery task result: {e}", exc_info=True)
+                if cancelled:
+                    logger.info(f"Skipping result fetch for cancelled task: {task_id}")
+                else:
+                    try:
+                        result = celery_task.get(timeout=30)
+                        logger.info(f"Celery task result: {result}")
+                    except Exception as e:
+                        logger.error(f"Error getting Celery task result: {e}", exc_info=True)
 
                 if user_id:
                     db = SessionLocal()
                     try:
                         task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
                         if task:
-                            task.status = TaskStatus.completed
+                            task.status = TaskStatus.cancelled if cancelled else TaskStatus.completed
                             task.completed_at = datetime.utcnow()
-                            task.faces_detected_frames = result.get("faces_detected_frames", 0)
-                            task.frames_skipped = result.get("frames_skipped", 0)
+                            if not cancelled:
+                                task.faces_detected_frames = result.get("faces_detected_frames", 0)
+                                task.frames_skipped = result.get("frames_skipped", 0)
                             db.commit()
                     except Exception as e:
                         logger.error(f"Error updating task: {e}")

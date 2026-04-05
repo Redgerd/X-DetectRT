@@ -9,13 +9,13 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = settings.DATABASE_URL
 
-logger.info(f"DATABASE_NAME: {settings.DATABASE_NAME}")
-logger.info(f"DATABASE_USER: {settings.DATABASE_USER}")
-logger.info(f"DATABASE_PASSWORD: {settings.DATABASE_PASSWORD}")
-logger.info(f"DATABASE_HOST: {settings.DATABASE_HOST}")
-logger.info(f"DATABASE_PORT: {settings.DATABASE_PORT}")
-logger.info(f"DATABASE_DOCKER_NAME: {settings.DATABASE_DOCKER_NAME}")
-logger.info(f"Using DATABASE_URL: {DATABASE_URL}")
+# logger.info(f"DATABASE_NAME: {settings.DATABASE_NAME}")
+# logger.info(f"DATABASE_USER: {settings.DATABASE_USER}")
+# logger.info(f"DATABASE_PASSWORD: {settings.DATABASE_PASSWORD}")
+# logger.info(f"DATABASE_HOST: {settings.DATABASE_HOST}")
+# logger.info(f"DATABASE_PORT: {settings.DATABASE_PORT}")
+# logger.info(f"DATABASE_DOCKER_NAME: {settings.DATABASE_DOCKER_NAME}")
+# logger.info(f"Using DATABASE_URL: {DATABASE_URL}")
 
 engine = create_engine(DATABASE_URL)
 

@@ -63,3 +63,5 @@ __pypackages__/
 *.whl
 
 pip_cache
+
+uploads/

@@ -25,65 +25,43 @@ def _build_llm_prompt(
     fake_prob: float,
     real_prob: float,
 ) -> list:
-    """Build optimized message payload for Groq Vision models."""
-    logger.debug(f"[LLM] Building Groq prompt. Fake Prob: {fake_prob:.2f}")
+    """Build optimized message payload for unified forensic analysis."""
     
-    # 1. System Prompt: Defines the "Persona" and Analysis Framework
+    # 1. System Prompt: Updated for "Image as a Whole" logic
     system_content = (
-        "You are a Forensic Deepfake Analyst. You will receive a facial frame and two diagnostic overlays: "
-        "1. Grad-CAM (Heatmap of model attention) "
-        "2. ELA (Error Level Analysis for compression inconsistencies). "
-        "Your goal is to cross-reference these to explain manipulation. "
-        "Look for spatial correlation: if the Grad-CAM 'hotspot' overlaps with high-energy ELA noise, "
-        "it strongly indicates a localized digital edit (e.g., face-swap)."
+        "You are a Forensic Deepfake Analyst. Your task is to analyze the provided "
+        "imagery and describe the primary manipulation 'hot spots' by focusing on the "
+        "image as a single, unified entity. Do not list separate findings for different "
+        "tools; instead, provide a cohesive summary of where forensic signatures overlap."
+    )
+
+    # 2. User Content: Refined for spatial orientation and unified reporting
+    analysis_context = (
+        f"### Forensic Metadata\n"
+        f"- **Model Detection Confidence (Fake):** {fake_prob:.2%}\n\n"
+        "### Task\n"
+        "Provide a single-paragraph summary identifying the specific spatial coordinates "
+        "(e.g., central facial features, along the jawline, or near the hairline) where "
+        "visual anomalies and high-intensity activations are most concentrated. "
+        "Describe how these areas suggest localized digital inconsistencies or structural "
+        "artifacts in the subject's geometry. Ensure the response treats all forensic "
+        "signatures as a unified indicator of manipulation without explicitly naming "
+        "the individual analysis techniques used (Grad-CAM or ELA). Avoid introductory filler."
     )
 
     messages = [
+        {"role": "system", "content": system_content},
         {
-            "role": "system",
-            "content": system_content
+            "role": "user",
+            "content": [
+                {"type": "text", "text": analysis_context},
+                {"type": "text", "text": "Source Frame:"},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{normal_frame_b64}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{gradcam_b64}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{ela_b64}"}}
+            ]
         }
     ]
-    
-    # 2. User Content: Structured for Multimodal Input
-    user_content = []
-    
-    # Technical Metadata
-    analysis_context = (
-        f"### Forensic Metadata\n"
-        f"- **Model Detection Confidence (Fake):** {fake_prob:.2%}\n"
-        f"- **Model Detection Confidence (Real):** {real_prob:.2%}\n\n"
-        "### Task\n"
-        "Explain the reasoning behind this classification. Analyze the provided images "
-        "for edge artifacts, blending inconsistencies, and noise distribution."
-    )
-    
-    user_content.append({"type": "text", "text": analysis_context})
-    
-    # Image 1: Raw Frame
-    user_content.append({"type": "text", "text": "Source Frame:"})
-    user_content.append({
-        "type": "image_url",
-        "image_url": {"url": f"data:image/jpeg;base64,{normal_frame_b64}"}
-    })
-    
-    # Image 2: Grad-CAM
-    if gradcam_b64:
-        user_content.append({"type": "text", "text": "Grad-CAM Heatmap (Model Focus):"})
-        user_content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{gradcam_b64}"}
-        })
-    
-    # Image 3: ELA
-    if ela_b64:
-        user_content.append({"type": "text", "text": "Error Level Analysis (ELA):"})
-        user_content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{ela_b64}"}
-        })
-    
-    messages.append({"role": "user", "content": user_content})
     return messages
 
 
@@ -97,6 +75,7 @@ def _call_llm_api(prompt: list) -> str:
     
     # Update your .env to use GROQ_API_KEY
     api_key = os.getenv("GROQ_API_KEY")
+
     # Llama 4 Scout is currently the recommended multimodal/vision model on Groq
     model = os.getenv("LLM_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 

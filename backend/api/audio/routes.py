@@ -313,3 +313,94 @@ async def get_all_audio(current_user = Depends(get_current_user)):
         return {"audio_analyses": result}
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# POST /audio/test-insert
+# ---------------------------------------------------------------------------
+
+@router.post("/test-insert")
+async def test_insert_random_data():
+    """
+    Inserts 5 test audio + analysis records with filenames test1.wav → test5.wav
+    """
+    import json, random
+    from models import AudioAnalysis, AudioFile
+
+    db = SessionLocal()
+    created_records = []
+
+    try:
+        for i in range(1, 3): 
+            # Create AudioFile
+            audio_file = AudioFile(
+                user_id=1,
+                filename=f"test{i}.wav",
+                file_size=random.randint(1024, 1048576),
+                file_path=None
+            )
+            db.add(audio_file)
+            db.flush()
+
+            # Random analysis values
+            verdict = "FAKE",
+            is_fake = True
+            confidence = round(random.uniform(70.0, 95.0), 2)
+            fake_prob = round(random.uniform(0.0, 1.0), 4)
+            real_prob = round(1.0 - fake_prob, 4)
+            duration_seconds = round(random.uniform(1.0, 10.0), 2)
+
+            waveform_samples = [round(random.uniform(-1.0, 1.0), 4) for _ in range(100)]
+
+            stft_matrix = [
+                [round(random.uniform(-80.0, 0.0), 2) for _ in range(50)]
+                for _ in range(20)
+            ]
+            stft_data = {
+                "matrix": stft_matrix,
+                "times": [round(i * 0.01, 3) for i in range(50)],
+                "freqs": [round(i * 100.0, 1) for i in range(20)],
+                "db_min": -80.0,
+                "db_max": 0.0
+            }
+
+            ig_scores = [round(random.uniform(0.0, 1.0), 4) for _ in range(100)]
+            shap_scores = [round(random.uniform(0.0, 1.0), 4) for _ in range(100)]
+
+            analysis = AudioAnalysis(
+                audio_file_id=audio_file.id,
+                verdict=verdict,
+                is_fake=is_fake,
+                confidence=confidence,
+                fake_prob=fake_prob,
+                real_prob=real_prob,
+                duration_seconds=duration_seconds,
+                waveform_samples=json.dumps(waveform_samples),
+                stft_data=json.dumps(stft_data),
+                ig_scores=json.dumps(ig_scores),
+                shap_scores=json.dumps(shap_scores),
+            )
+
+            db.add(analysis)
+
+            created_records.append({
+                "audio_file_id": audio_file.id,
+                "analysis_id": analysis.id,
+                "filename": f"test{i}.wav",
+                "verdict": verdict,
+                "confidence": confidence
+            })
+
+        db.commit()
+
+        return {
+            "message": "5 test records inserted successfully",
+            "records": created_records
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed: {str(e)}")
+
+    finally:
+        db.close()

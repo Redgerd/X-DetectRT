@@ -59,9 +59,10 @@ services:
   # Celery Frame Worker (reuses image)
   celery-frame-worker:
     image: my-fastapi-app:latest
-    hostname: frame_worker
-    container_name: celery-frame-worker
+    # container_name: celery-frame-worker
     working_dir: /app/backend
+    deploy:
+      replicas: ${FRAME_WORKER_COUNT:-1}
     environment:
       - CELERY_MODULE=${CELERY_MODULE}
       - REDIS_URL=${REDIS_URL}
@@ -97,8 +98,10 @@ services:
 
   celery-detection-worker:
     image: my-fastapi-app:latest
-    hostname: detection_worker
+    # hostname: detection_worker
     working_dir: /app/backend
+    deploy:
+      replicas: ${DETECTION_WORKER_COUNT:-1}
     environment:
       - CELERY_MODULE=${CELERY_MODULE}
       - REDIS_URL=${REDIS_URL}

@@ -49,6 +49,10 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 3000))  
     ADMIN_TOKEN_EXPIRE_MINUTES  = int(os.getenv("ADMIN_TOKEN_EXPIRE_MINUTES", 2000))  
 
+    # LLM
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
     # OAuth settings
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "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")
 

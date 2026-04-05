@@ -158,6 +158,7 @@ from api.video.routes import router as video_router
 from api.users.routes import router as users_router
 from api.audio.routes import router as audio_router
 from api.audio.websocket import router as audio_ws_router
+from api.report.routes import router as report_router
 
 app.include_router(video_ws_router)
 app.include_router(video_router)
@@ -165,6 +166,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(audio_router)
 app.include_router(audio_ws_router)
+app.include_router(report_router)
 
 
 @app.get("/health")

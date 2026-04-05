@@ -37,6 +37,8 @@ soundfile
 captum>=0.7.0
 shap>=0.44.0
 matplotlib
+# ── Report Generation ───────────────────────────────────────────────────────
+reportlab>=4.1.0           # professional PDF generation (forensic reports)
 # ── XAI Techniques (Advanced) ───────────────────────────────────────────────
 timeshap>=0.3.0
 mediapipe>=0.10.0

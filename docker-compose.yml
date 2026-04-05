@@ -43,7 +43,7 @@ services:
       PROTOTYPE_DB_PATH: /app/data/known_fakes_embeddings.npy
       PYTHONPATH: /app/backend
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - ./backend:/app/backend
       - ./uploads:/app/uploads

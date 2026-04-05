@@ -150,7 +150,7 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                 pil_image = _base64_to_pil(frame_b64)
                 tensor = model.feature_extractor.preprocess(pil_image).unsqueeze(0).to(device)
 
-                # ── 1. Grad-CAM++ ────────────────────────────────────────
+                # ── 1. explainable_pipeline ────────────────────────────────────────
                 logger.info(f"[XAI] Generating Grad-CAM++ for frame {frame_index}")
                 gradcam_b64 = generate_gradcam(model, tensor, pil_image)
 

@@ -28,6 +28,7 @@ from config import settings
 from .celery_app import celery_app
 
 from services.explaination.pipeline import run_xai
+from .llm import run_llm
 
 logger = logging.getLogger(__name__)
 
@@ -124,13 +125,43 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                 continue
 
             try:
-                # ── Run all 7 XAI techniques ──────────────────────────────
-                technique_results = run_xai(
+                # ── Run image XAI techniques (Grad-CAM, ELA) ──────────────────
+                xai_result = run_xai(
                     media_type="image",
                     b64_image=frame_b64,
-                    frame_probs=all_frame_probs,   # temporal context for SHAP
-                    frame_tensors=None,            # tensors not stored; probs suffice
                 )
+
+                gradcam_b64 = xai_result.get("gradcam_b64")
+                ela_b64 = xai_result.get("ela_b64")
+
+                technique_results = []
+                if gradcam_b64:
+                    technique_results.append({
+                        "technique": "Grad-CAM",
+                        "figure_base64": gradcam_b64,
+                    })
+                if ela_b64:
+                    technique_results.append({
+                        "technique": "ELA",
+                        "figure_base64": ela_b64,
+                    })
+
+                # ── Send to LLM for analysis ─────────────────────────────────
+                try:
+                    llm_result = run_llm(task_id, {
+                        "frame_data": frame_b64,
+                        "gradcam_b64": gradcam_b64,
+                        "ela_b64": ela_b64,
+                        "frame_index": frame_index,
+                        "timestamp": timestamp,
+                        "is_anomaly": is_anomaly,
+                        "fake_prob": fake_prob,
+                        "real_prob": real_prob,
+                    })
+                    llm_analysis = llm_result.get("analysis", "")
+                except Exception as llm_err:
+                    logger.warning(f"[XAI] LLM call failed for frame {frame_index}: {llm_err}")
+                    llm_analysis = ""
 
                 xai_entry = {
                     "frame_index": frame_index,
@@ -138,7 +169,8 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any]) -> Dic
                     "is_anomaly":  is_anomaly,
                     "fake_prob":   fake_prob,
                     "real_prob":   real_prob,
-                    "techniques":  technique_results,  # List[dict] — one per technique
+                    "techniques":  technique_results,
+                    "llm_analysis": llm_analysis,
                 }
                 xai_results.append(xai_entry)
 

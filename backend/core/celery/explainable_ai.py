@@ -150,7 +150,7 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any], user_i
                 pil_image = _base64_to_pil(frame_b64)
                 tensor = model.feature_extractor.preprocess(pil_image).unsqueeze(0).to(device)
 
-                # ── 1. Grad-CAM++ ────────────────────────────────────────
+                # ── 1. explainable_pipeline ────────────────────────────────────────
                 logger.info(f"[XAI] Generating Grad-CAM++ for frame {frame_index}")
                 gradcam_b64 = generate_gradcam(model, tensor, pil_image)
 
@@ -166,6 +166,22 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any], user_i
                 logger.info(f"[XAI] Generating LIME for frame {frame_index}")
                 lime_data = generate_lime(model, pil_image, device=device)
 
+                # ── 5. LLM narrative explanation ──────────────────────────
+                logger.info(f"[XAI] Dispatching LLM analysis for frame {frame_index}")
+                from core.celery.llm import run_llm
+                llm_result = run_llm(
+                    task_id=task_id,
+                    frame_data={
+                        "frame_index": frame_index,
+                        "frame_data":  frame_b64,   # original frame
+                        "gradcam_b64": gradcam_b64,
+                        "ela_b64":     ela_b64,
+                        "fake_prob":   fake_prob,
+                        "real_prob":   real_prob,
+                    },
+                )
+                llm_analysis = llm_result.get("analysis", "") if isinstance(llm_result, dict) else ""
+
                 # ── Bundle all four and store ──────────────────────────────
                 xai_entry = {
                     "frame_index":  frame_index,
@@ -180,6 +196,8 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any], user_i
                     "ela_b64":      ela_b64,
                     "fft_data":     fft_data,
                     "lime_data":    lime_data,
+                    # LLM narrative explanation
+                    "llm_analysis":  llm_analysis,
                 }
                 xai_results.append(xai_entry)
 

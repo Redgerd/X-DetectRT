@@ -204,9 +204,6 @@ async def websocket_task(ws: WebSocket):
             file_type = data.get("file_type", "video")
             file_name = data.get("file_name", task_id)
             user_id = data.get("user_id")
-            if not user_id:
-                await safe_send_json(ws, {"type": "error", "message": "user_id is required"})
-                return
         except JSONDecodeError:
             task_id = msg.strip()
             video_duration = None
@@ -226,24 +223,25 @@ async def websocket_task(ws: WebSocket):
                 return
 
             try:
-                db = SessionLocal()
-                try:
-                    task = VideoAnalysisTask(
-                        task_id=task_id,
-                        user_id=user_id,
-                        video_path=file_path,
-                        status=TaskStatus.processing,
-                    )
-                    db.add(task)
-                    db.commit()
-                    db.refresh(task)
-                except Exception as e:
-                    logger.error(f"Error creating task: {e}")
-                    db.rollback()
-                    await safe_send_json(ws, {"type": "error", "message": "Failed to create task"})
-                    return
-                finally:
-                    db.close()
+                if user_id:
+                    db = SessionLocal()
+                    try:
+                        task = VideoAnalysisTask(
+                            task_id=task_id,
+                            user_id=user_id,
+                            video_path=file_path,
+                            status=TaskStatus.processing,
+                        )
+                        db.add(task)
+                        db.commit()
+                        db.refresh(task)
+                    except Exception as e:
+                        logger.error(f"Error creating task: {e}")
+                        db.rollback()
+                        await safe_send_json(ws, {"type": "error", "message": "Failed to create task"})
+                        return
+                    finally:
+                        db.close()
 
                 if not await safe_send_text(ws, "Processing image..."):
                     return
@@ -263,6 +261,7 @@ async def websocket_task(ws: WebSocket):
                     frame_data=frame_data_b64,
                     frame_index=0,
                     timestamp="00:00:00.000",
+                    user_id=user_id
                 )
 
                 logger.info(f"Sent image {file_name} to detection worker for task: {task_id}")
@@ -393,18 +392,19 @@ async def websocket_task(ws: WebSocket):
                     "xai_result": xai_result,
                 })
 
-                db = SessionLocal()
-                try:
-                    task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
-                    if task:
-                        task.status = TaskStatus.completed
-                        task.completed_at = datetime.utcnow()
-                        db.commit()
-                except Exception as e:
-                    logger.error(f"Error updating task: {e}")
-                    db.rollback()
-                finally:
-                    db.close()
+                if user_id:
+                    db = SessionLocal()
+                    try:
+                        task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
+                        if task:
+                            task.status = TaskStatus.completed
+                            task.completed_at = datetime.utcnow()
+                            db.commit()
+                    except Exception as e:
+                        logger.error(f"Error updating task: {e}")
+                        db.rollback()
+                    finally:
+                        db.close()
 
             except Exception as e:
                 logger.error(f"Error in image processing: {e}", exc_info=True)
@@ -424,30 +424,32 @@ async def websocket_task(ws: WebSocket):
 
             logger.info(f"Starting frame extraction for task: {task_id}, file: {file_name}")
 
-            db = SessionLocal()
-            try:
-                task = VideoAnalysisTask(
-                    task_id=task_id,
-                    user_id=user_id,
-                    video_path=file_path,
-                    status=TaskStatus.processing,
-                )
-                db.add(task)
-                db.commit()
-                db.refresh(task)
-            except Exception as e:
-                logger.error(f"Error creating task: {e}")
-                db.rollback()
-                await safe_send_json(ws, {"type": "error", "message": "Failed to create task"})
-                return
-            finally:
-                db.close()
+            if user_id:
+                db = SessionLocal()
+                try:
+                    task = VideoAnalysisTask(
+                        task_id=task_id,
+                        user_id=user_id,
+                        video_path=file_path,
+                        status=TaskStatus.processing,
+                    )
+                    db.add(task)
+                    db.commit()
+                    db.refresh(task)
+                except Exception as e:
+                    logger.error(f"Error creating task: {e}")
+                    db.rollback()
+                    await safe_send_json(ws, {"type": "error", "message": "Failed to create task"})
+                    return
+                finally:
+                    db.close()
 
             try:
                 celery_task = extract_faces_with_optical_flow.delay(
                     file_path,
                     task_id=task_id,
                     video_duration=video_duration,
+                    user_id=user_id
                 )
 
                 if not await safe_send_text(ws, "Processing..."):
@@ -660,20 +662,21 @@ async def websocket_task(ws: WebSocket):
                 except Exception as e:
                     logger.error(f"Error getting Celery task result: {e}", exc_info=True)
 
-                db = SessionLocal()
-                try:
-                    task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
-                    if task:
-                        task.status = TaskStatus.completed
-                        task.completed_at = datetime.utcnow()
-                        task.faces_detected_frames = result.get("faces_detected_frames", 0)
-                        task.frames_skipped = result.get("frames_skipped", 0)
-                        db.commit()
-                except Exception as e:
-                    logger.error(f"Error updating task: {e}")
-                    db.rollback()
-                finally:
-                    db.close()
+                if user_id:
+                    db = SessionLocal()
+                    try:
+                        task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
+                        if task:
+                            task.status = TaskStatus.completed
+                            task.completed_at = datetime.utcnow()
+                            task.faces_detected_frames = result.get("faces_detected_frames", 0)
+                            task.frames_skipped = result.get("frames_skipped", 0)
+                            db.commit()
+                    except Exception as e:
+                        logger.error(f"Error updating task: {e}")
+                        db.rollback()
+                    finally:
+                        db.close()
 
                 xai_result = None
                 if redis_client:

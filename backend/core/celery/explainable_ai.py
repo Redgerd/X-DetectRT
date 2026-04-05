@@ -215,11 +215,12 @@ def run_explainable_ai(self, task_id: str, frame_results: Dict[str, Any], user_i
                             "real_prob":    real_prob,
                             "confidence":   confidence,
                             "anomaly_type": anomaly_type,
-                            # All four XAI outputs sent together
+                            # All XAI outputs sent together
                             "gradcam_b64":  gradcam_b64,
                             "ela_b64":      ela_b64,
                             "fft_data":     fft_data,
                             "lime_data":    lime_data,
+                            "llm_analysis": llm_analysis,
                         })
                     )
                 except Exception as redis_err:

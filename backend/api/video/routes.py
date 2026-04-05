@@ -3,11 +3,12 @@ from fastapi.responses import JSONResponse
 import uuid
 import base64
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from jose import jwt
 from jose.exceptions import JWTError
 from config import settings, XAI_CONFIG
 from sqlalchemy.orm import joinedload
+from sqlalchemy import func
 
 # Import the Celery task for GenD inference
 from core.celery.detection_tasks import run_gend_inference
@@ -321,6 +322,98 @@ async def get_all_videos_test():
                 }
             })
         return {"videos": result}
+    finally:
+        db.close()
+
+
+@router.get("/trends")
+async def get_trends(period: str = "7d", current_user = Depends(get_current_user)):
+    """
+    Get trends data for the last 7 days: uploads and anomalies per day.
+    Admins see all data, regular users see only their own.
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    db = SessionLocal()
+    try:
+        end_date = datetime.utcnow()
+
+        if period == "24h":
+            start_date = end_date - timedelta(hours=24)
+            date_func = func.extract('hour', VideoAnalysisTask.created_at)
+            date_label = 'hour'
+            num_periods = 24
+            def get_label(i): return f"{i:02d}"
+        elif period == "7d":
+            start_date = end_date - timedelta(days=7)
+            date_func = func.date(VideoAnalysisTask.created_at)
+            date_label = 'date'
+            num_periods = 7
+            def get_label(i): return (start_date + timedelta(days=i)).strftime('%a')
+        elif period == "30d":
+            start_date = end_date - timedelta(days=30)
+            date_func = func.date(VideoAnalysisTask.created_at)
+            date_label = 'date'
+            num_periods = 30
+            def get_label(i): return (start_date + timedelta(days=i)).strftime('%m-%d')
+        else:
+            # Default to 7d
+            start_date = end_date - timedelta(days=7)
+            date_func = func.date(VideoAnalysisTask.created_at)
+            date_label = 'date'
+            num_periods = 7
+            def get_label(i): return (start_date + timedelta(days=i)).strftime('%a')
+
+        # Get uploads
+        uploads_query = db.query(
+            date_func.label(date_label),
+            func.count(VideoAnalysisTask.id).label('uploads')
+        ).filter(VideoAnalysisTask.created_at >= start_date)
+
+        if current_user['role'] != 'admin':
+            uploads_query = uploads_query.filter(VideoAnalysisTask.user_id == current_user['user_id'])
+
+        uploads_data = uploads_query.group_by(date_func).all()
+
+        # Get anomalies
+        anomalies_query = db.query(
+            date_func.label(date_label),
+            func.count(DetectionResult.id).label('anomalies')
+        ).join(ProcessedFrame, DetectionResult.frame_id == ProcessedFrame.id
+        ).join(VideoAnalysisTask, ProcessedFrame.task_id == VideoAnalysisTask.task_id
+        ).filter(DetectionResult.is_anomaly == True, VideoAnalysisTask.created_at >= start_date)
+
+        if current_user['role'] != 'admin':
+            anomalies_query = anomalies_query.filter(VideoAnalysisTask.user_id == current_user['user_id'])
+
+        anomalies_data = anomalies_query.group_by(date_func).all()
+
+        # Create dicts
+        if period == "24h":
+            uploads_dict = {int(row.hour): row.uploads for row in uploads_data}
+            anomalies_dict = {int(row.hour): row.anomalies for row in anomalies_data}
+        else:
+            uploads_dict = {str(row.date): row.uploads for row in uploads_data}
+            anomalies_dict = {str(row.date): row.anomalies for row in anomalies_data}
+
+        # Generate trends
+        trends = []
+        for i in range(num_periods):
+            if period == "24h":
+                key = i
+            else:
+                key = (start_date + timedelta(days=i)).strftime('%Y-%m-%d')
+            label = get_label(i)
+            uploads = uploads_dict.get(key, 0) if period == "24h" else uploads_dict.get(key, 0)
+            anomalies = anomalies_dict.get(key, 0) if period == "24h" else anomalies_dict.get(key, 0)
+            trends.append({
+                "date": label,
+                "uploads": uploads,
+                "anomalies": anomalies
+            })
+
+        return {"trends": trends}
     finally:
         db.close()
 

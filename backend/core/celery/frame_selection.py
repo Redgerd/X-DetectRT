@@ -20,6 +20,7 @@ from models import ProcessedFrame, VideoAnalysisTask
 from models.tasks import TaskStatus
 from core.database import SessionLocal
 from datetime import datetime
+from typing import Optional
 # Import the GenD detection task from detection_tasks
 from .detection_tasks import run_gend_inference
 
@@ -47,7 +48,7 @@ PADDING = 20
 FLOW_THRESHOLD = 3.0
 
 @shared_task(name="frame_selection_pipeline.run")
-def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=15, video_duration=None):
+def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=15, video_duration=None, user_id: Optional[str] = None):
 
     try:
 
@@ -186,23 +187,24 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=15, vid
 
                     timestamp_str = seconds_to_hhmmss(timestamp_sec)
 
-                    # Insert frame into database
-                    try:
-                        frame_db = ProcessedFrame(
-                            task_id=task_id,
-                            frame_index=processed_count,
-                            timestamp=timestamp_str,
-                            timestamp_seconds=round(timestamp_sec, 3),
-                            frame_data=frame_data_b64,
-                            fps=round(fps, 2),
-                            video_duration=round(total_duration, 2)
-                        )
-                        db.add(frame_db)
-                        db.commit()
-                        db.refresh(frame_db)
-                    except Exception as e:
-                        logger.warning(f"[{task_id}] Failed to insert frame {processed_count}: {e}")
-                        db.rollback()
+                    if user_id:
+                        # Insert frame into database
+                        try:
+                            frame_db = ProcessedFrame(
+                                task_id=task_id,
+                                frame_index=processed_count,
+                                timestamp=timestamp_str,
+                                timestamp_seconds=round(timestamp_sec, 3),
+                                frame_data=frame_data_b64,
+                                fps=round(fps, 2),
+                                video_duration=round(total_duration, 2)
+                            )
+                            db.add(frame_db)
+                            db.commit()
+                            db.refresh(frame_db)
+                        except Exception as e:
+                            logger.warning(f"[{task_id}] Failed to insert frame {processed_count}: {e}")
+                            db.rollback()
 
                     # ---------- redis stream ----------
                     redis_client.publish(
@@ -226,7 +228,8 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=15, vid
                         task_id=task_id,
                         frame_data=frame_data_b64,
                         frame_index=processed_count,
-                        timestamp=timestamp_str
+                        timestamp=timestamp_str,
+                        user_id=user_id
                     )
 
                 processed_count += 1
@@ -268,20 +271,20 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=15, vid
             json.dumps(result)
         )
 
-        # Update task status
-        try:
-            task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
-            if task:
-                task.status = TaskStatus.completed
-                task.completed_at = datetime.utcnow()
-                task.faces_detected_frames = processed_count
-                task.frames_skipped = skipped_count
-                db.commit()
-        except Exception as e:
-            logger.warning(f"[{task_id}] Failed to update task: {e}")
-            db.rollback()
-        finally:
-            db.close()
+        if user_id:
+            # Update task status
+            try:
+                task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
+                if task:
+                    task.status = TaskStatus.completed
+                    task.completed_at = datetime.utcnow()
+                    task.faces_detected_frames = processed_count
+                    task.frames_skipped = skipped_count
+                    db.commit()
+            except Exception as e:
+                logger.warning(f"[{task_id}] Failed to update task: {e}")
+                db.rollback()
+        db.close()
 
         logger.info(
             f"[{task_id}] done | faces={processed_count} skipped={skipped_count}"
@@ -293,17 +296,17 @@ def extract_faces_with_optical_flow(video_path, task_id=None, max_frames=15, vid
 
         logger.exception(f"[{task_id}] pipeline crashed: {e}")
 
-        # Update task status to failed
-        try:
-            task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
-            if task:
-                task.status = TaskStatus.failed
-                db.commit()
-        except Exception as update_e:
-            logger.warning(f"[{task_id}] Failed to update task to failed: {update_e}")
-            db.rollback()
-        finally:
-            db.close()
+        if user_id:
+            # Update task status to failed
+            try:
+                task = db.query(VideoAnalysisTask).filter_by(task_id=task_id).first()
+                if task:
+                    task.status = TaskStatus.failed
+                    db.commit()
+            except Exception as update_e:
+                logger.warning(f"[{task_id}] Failed to update task to failed: {update_e}")
+                db.rollback()
+        db.close()
 
         return {
             "error": str(e),

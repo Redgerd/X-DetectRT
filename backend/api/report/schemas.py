@@ -54,6 +54,8 @@ class FlaggedFrameSchema(BaseModel):
     frame_data:   Optional[str]   = None
     gradcam_b64:  Optional[str]   = None
     ela_b64:      Optional[str]   = None
+    lime_b64:     Optional[str]   = None
+    fft_b64:      Optional[str]   = None
 
 
 class VideoDataSchema(BaseModel):
@@ -89,6 +91,8 @@ class GenerateReportRequest(BaseModel):
     case_id:           Optional[str]                      = None
     module_type:       Literal["image", "video", "audio"]
     executive_summary: Optional[str]                      = None
+    # Alias: some frontend sends llm_explanation instead of executive_summary
+    llm_explanation:   Optional[str]                      = None
 
     # Module-specific payloads (only one should be filled per call)
     image_data:        Optional[ImageDataSchema]          = None

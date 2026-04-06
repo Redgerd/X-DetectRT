@@ -129,9 +129,13 @@ def _generate_image_report(payload: GenerateReportRequest, case_id: str):
     else:
         img = img.model_dump()
 
+    # Resolve LLM explanation: prefer executive_summary, fall back to llm_explanation
+    llm_text = payload.executive_summary or payload.llm_explanation or ""
+
     data = {
         "case_id":           case_id,
-        "executive_summary": payload.executive_summary or "",
+        "executive_summary": llm_text,
+        "llm_explanation":   llm_text,
         # Flatten image_data fields into root
         **img,
     }
@@ -158,9 +162,13 @@ def _generate_video_report(payload: GenerateReportRequest, case_id: str):
     if not vid_dict.get("anomaly_count") and flagged:
         vid_dict["anomaly_count"] = len([f for f in flagged if f.get("is_anomaly", True)])
 
+    # Resolve LLM explanation: prefer executive_summary, fall back to llm_explanation
+    llm_text = payload.executive_summary or payload.llm_explanation or ""
+
     data = {
         "case_id":           case_id,
-        "executive_summary": payload.executive_summary or "",
+        "executive_summary": llm_text,
+        "llm_explanation":   llm_text,
         "video_data":        vid_dict,
         "flagged_frames":    flagged,
     }
@@ -178,9 +186,13 @@ def _generate_audio_report(payload: GenerateReportRequest, case_id: str):
 
     stft_dict = payload.stft.model_dump() if payload.stft else None
 
+    # Resolve LLM explanation: prefer executive_summary, fall back to llm_explanation
+    llm_text = payload.executive_summary or payload.llm_explanation or ""
+
     data = {
         "case_id":           case_id,
-        "executive_summary": payload.executive_summary or "",
+        "executive_summary": llm_text,
+        "llm_explanation":   llm_text,
         "audio_data":        aud_dict,
         "ig_scores":         payload.ig_scores   or [],
         "shap_scores":       payload.shap_scores or [],

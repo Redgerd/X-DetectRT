@@ -2,33 +2,31 @@
 """
 PDF Generation Module for Deepfake Detection Reports.
 
-Supports generation of professional forensic PDF reports for:
-- Video Analysis
-- Image Analysis
-- Audio Analysis
-
-Each report includes:
-- Executive Summary (LLM-generated)
-- Technical Breakdown (anomaly scores, confidence levels)
-- XAI Visualizations (Grad-CAM, ELA, spectrograms)
-- Forensic Evidence (side-by-side comparisons)
+This module now re-exports the report generator classes directly 
+from the real reporting module (`services.reports`) to maintain
+backward compatibility if needed.
 """
 
-from .generator import PDFGenerator, generate_forensic_report
-from .schemas import (
-    AnalysisReportData,
-    VideoAnalysisData,
-    ImageAnalysisData,
-    AudioAnalysisData,
-    XAIResultData,
+from ..reports import (
+    ImageForensicReport,
+    VideoForensicReport,
+    AudioForensicReport
+)
+
+# If you need to re-export the schemas, they are now consolidated in api.report:
+from ...api.report.schemas import (
+    ImageDataSchema as ImageAnalysisData,
+    VideoDataSchema as VideoAnalysisData,
+    AudioDataSchema as AudioAnalysisData,
+    GenerateReportRequest as AnalysisReportData
 )
 
 __all__ = [
-    "PDFGenerator",
-    "generate_forensic_report",
-    "AnalysisReportData",
-    "VideoAnalysisData",
+    "ImageForensicReport",
+    "VideoForensicReport",
+    "AudioForensicReport",
     "ImageAnalysisData",
+    "VideoAnalysisData",
     "AudioAnalysisData",
-    "XAIResultData",
+    "AnalysisReportData"
 ]

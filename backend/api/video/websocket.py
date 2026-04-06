@@ -21,6 +21,7 @@ from models import VideoAnalysisTask
 from models.tasks import TaskStatus
 from core.database import SessionLocal
 from datetime import datetime
+from utils.minio_utils import minio_client
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -29,6 +30,19 @@ UPLOAD_DIR = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter()
+
+def download_from_minio(object_name: str) -> str:
+    """Download file from MinIO to a temp file and return the temp path."""
+    import tempfile
+    temp_fd, temp_path = tempfile.mkstemp(suffix=os.path.splitext(object_name)[1])
+    os.close(temp_fd)  # Close the file descriptor
+    try:
+        minio_client.client.fget_object(settings.MINIO_BUCKET_NAME, object_name, temp_path)
+        logger.info(f"Downloaded from MinIO to temp: {temp_path}")
+        return temp_path
+    except Exception as e:
+        logger.error(f"Error downloading from MinIO: {e}")
+        raise
 
 # Small delay between sending frames to prevent batching
 FRAME_SEND_DELAY = 0.05  # 50ms between frames
@@ -161,28 +175,40 @@ async def receive_file_data(
     send_signal: str
 ) -> Optional[str]:
     """
-    Receive file data from WebSocket and save to disk.
+    Receive file data from WebSocket and upload to MinIO.
     """
     try:
         await ws.send_text(send_signal)
 
-        file_path = f"{UPLOAD_DIR}/{file_name}.{file_extension}"
+        object_name = f"{uuid.uuid4()}/{file_name}.{file_extension}"
+        content_type = "video/mp4" if file_extension == "mp4" else "image/jpeg"
 
-        with open(file_path, "wb") as f:
-            while True:
-                try:
-                    data = await ws.receive()
-                except (WebSocketDisconnect, RuntimeError) as e:
-                    logger.info(f"WebSocket disconnected while receiving {file_extension} data: {e}")
-                    return None
+        file_bytes = b""
+        while True:
+            try:
+                data = await ws.receive()
+            except (WebSocketDisconnect, RuntimeError) as e:
+                logger.info(f"WebSocket disconnected while receiving {file_extension} data: {e}")
+                return None
 
-                if "bytes" in data and data["bytes"]:
-                    f.write(data["bytes"])
-                elif "text" in data and data["text"] == "END":
-                    break
+            if "bytes" in data and data["bytes"]:
+                file_bytes += data["bytes"]
+            elif "text" in data and data["text"] == "END":
+                break
 
-        logger.info(f"File saved to: {file_path}")
-        return file_path
+        # Save locally first
+        import tempfile
+        temp_fd, temp_path = tempfile.mkstemp(suffix=f".{file_extension}")
+        os.close(temp_fd)
+        with open(temp_path, "wb") as f:
+            f.write(file_bytes)
+        logger.info(f"File saved locally: {temp_path}")
+
+        # Upload to MinIO
+        minio_client.upload_bytes(file_bytes, object_name, content_type)
+
+        logger.info(f"File uploaded to MinIO: {object_name}")
+        return object_name
 
     except Exception as e:
         logger.error(f"Error receiving file data: {e}")
@@ -273,9 +299,14 @@ async def websocket_task(ws: WebSocket):
                 if not await safe_send_text(ws, "Processing image..."):
                     return
 
-                img = cv2.imread(file_path)
-                if img is None:
-                    raise ValueError(f"Could not load image from {file_path}")
+                # Download image from MinIO
+                temp_image_path = download_from_minio(file_path)
+                try:
+                    img = cv2.imread(temp_image_path)
+                    if img is None:
+                        raise ValueError(f"Could not load image from {file_path}")
+                finally:
+                    os.unlink(temp_image_path)  # Remove temp file
 
                 success, buffer = cv2.imencode(".jpg", img)
                 if not success:
@@ -474,7 +505,7 @@ async def websocket_task(ws: WebSocket):
                     task = VideoAnalysisTask(
                         task_id=task_id,
                         user_id=user_id,
-                        video_path=file_path,
+                        video_path=file_path,  # Now object_name
                         status=TaskStatus.processing,
                     )
                     db.add(task)

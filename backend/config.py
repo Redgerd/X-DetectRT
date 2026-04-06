@@ -65,4 +65,11 @@ class Settings:
     # Receiver emails list
     RECEIVER_EMAILS = os.getenv("RECEIVER_EMAILS", "")
 
+    # MinIO settings
+    MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio-verite:9000")
+    MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+    MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+    MINIO_SECURE = os.getenv("MINIO_SECURE", "False").lower() == "true"
+    MINIO_BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME", "xdetect-files")
+
 settings = Settings()

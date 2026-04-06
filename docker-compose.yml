@@ -155,6 +155,26 @@ services:
     networks:
       - backend
 
+  minio:
+    container_name: minio-verite
+    image: minio/minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9100:9000"
+      - "9101:9001"
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - minio-data:/minio_data
+    networks:
+      - backend
+
 networks:
   backend:
     driver: bridge
@@ -163,3 +183,4 @@ volumes:
   postgres_data:
   pip-cache:
   checkpoints:
+  minio-data:

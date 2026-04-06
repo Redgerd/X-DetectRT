@@ -24,6 +24,10 @@ from api.audio.schemas import AudioAnalysisResult, StftData
 from core.database import SessionLocal
 from sqlalchemy.orm import joinedload
 
+import os
+import uuid
+from utils.minio_utils import minio_client
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/audio", tags=["Audio Detection"])
@@ -120,6 +124,18 @@ async def analyze_audio(
             status_code=413,
             detail=f"File too large (max {MAX_AUDIO_SIZE_BYTES // (1024 * 1024)} MB).",
         )
+
+    # Save locally and upload to MinIO
+    import tempfile
+    temp_fd, temp_path = tempfile.mkstemp(suffix=".wav")
+    os.close(temp_fd)
+    with open(temp_path, "wb") as f:
+        f.write(audio_bytes)
+    logger.info(f"Audio file saved locally: {temp_path}")
+    object_name = f"{uuid.uuid4()}/audio.wav"
+    content_type = audio.content_type or "audio/wav"
+    minio_client.upload_bytes(audio_bytes, object_name, content_type)
+    logger.info(f"Audio uploaded to MinIO: {object_name}")
 
     # ------------------------------------------------------------------
     # 2. Preprocess audio → fixed-length tensor

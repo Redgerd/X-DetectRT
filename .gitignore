@@ -65,3 +65,17 @@ __pypackages__/
 pip_cache
 
 uploads/
+
+# Document files
+*.pdf
+
+# Technical artifacts
+*.pt
+*.pth
+*.h5
+
+# Media assets
+uploads/
+*.mp4
+*.jpg
+*.png
